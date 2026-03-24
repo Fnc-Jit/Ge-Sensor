@@ -410,6 +410,109 @@ td { padding: 9px 16px; color: var(--text); white-space: nowrap; }
 .toggle-switch.on .toggle-knob {
   transform: translateX(14px);
 }
+
+/* ═══ CONFIG EDITOR (overlay) ═══ */
+.editor-container {
+  position: relative;
+  min-height: 520px;
+  background: #020408;
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.08) transparent;
+}
+.editor-container textarea,
+.editor-container pre {
+  margin: 0;
+  padding: 18px 20px;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  line-height: 1.75;
+  tab-size: 2;
+  white-space: pre;
+  word-wrap: normal;
+  overflow-wrap: normal;
+  border: none;
+  outline: none;
+  min-height: 520px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.editor-container textarea {
+  position: absolute;
+  top: 0; left: 0;
+  resize: none;
+  background: transparent;
+  color: transparent;
+  caret-color: #00ffc8;
+  z-index: 2;
+  height: 100%;
+}
+.editor-container pre {
+  position: relative;
+  z-index: 1;
+  pointer-events: none;
+  color: #c8e0ff;
+  background: transparent;
+}
+/* YAML token colors */
+.yl-comment  { color: #5a6a8a; font-style: italic; }
+.yl-seckey   { color: #00d4ff; font-weight: 600; }
+.yl-key      { color: #e87aff; }
+.yl-string   { color: #ffd166; }
+.yl-bool-t   { color: #00ff9d; }
+.yl-bool-f   { color: #ff8c42; }
+.yl-number   { color: #00d4ff; }
+.yl-colon    { color: #5a6a8a; }
+
+.action-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-shrink: 0;
+}
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text);
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.btn:hover {
+  background: rgba(0,210,255,0.08);
+  border-color: rgba(0,210,255,0.25);
+}
+.btn.primary {
+  background: rgba(0,255,157,0.1);
+  border-color: rgba(0,255,157,0.3);
+  color: var(--green);
+}
+.btn.primary:hover {
+  background: rgba(0,255,157,0.18);
+}
+.btn.danger {
+  background: rgba(255,62,94,0.08);
+  border-color: rgba(255,62,94,0.2);
+  color: var(--red);
+}
+.btn.danger:hover {
+  background: rgba(255,62,94,0.15);
+}
+
+.config-status {
+  font-family: var(--mono);
+  font-size: 0.6rem;
+  color: rgba(0,255,200,0.6);
+  letter-spacing: 0.05em;
+}
 </style>
 </head>
 <body>
@@ -523,26 +626,33 @@ td { padding: 9px 16px; color: var(--text); white-space: nowrap; }
         </div>
 
         <div class="two-col">
+          <!-- Packet Throughput Chart -->
           <div class="card">
-            <div class="card-header"><span class="card-title">// Capture Config (live)</span></div>
-            <div class="kv-list" id="capture-kv">
-              <div class="kv-row"><span class="kv-key">interface</span><span class="kv-val c" id="kv-iface">—</span></div>
-              <div class="kv-row"><span class="kv-key">mode</span><span class="kv-val c" id="kv-mode">—</span></div>
-              <div class="kv-row"><span class="kv-key">promiscuous</span><span class="kv-val g" id="kv-promisc">—</span></div>
-              <div class="kv-row"><span class="kv-key">snap_len</span><span class="kv-val" id="kv-snaplen">—</span></div>
+            <div class="card-header"><span class="card-title">// Packet Throughput (last 12h)</span></div>
+            <div style="padding: 16px 16px 10px; position: relative; height: 180px;">
+              <div id="throughput-chart" style="display: flex; align-items: flex-end; gap: 6px; height: 140px; padding-bottom: 4px;">
+                <!-- 12 bars populated by JS -->
+              </div>
+              <div style="display: flex; justify-content: space-between; font-family: var(--mono); font-size: 0.55rem; color: var(--muted); margin-top: 6px;">
+                <span>12h ago</span>
+                <span id="throughput-peak" style="color: var(--cyan);"></span>
+                <span>now</span>
+              </div>
             </div>
           </div>
+          <!-- Runtime Config -->
           <div class="card">
-            <div class="card-header"><span class="card-title">// IPS Engine (live)</span></div>
-            <div class="kv-list" id="ips-kv">
-              <div class="kv-row"><span class="kv-key">mode</span><span class="kv-val o" id="kv-ips-mode">—</span></div>
-              <div class="kv-row"><span class="kv-key">enabled</span><span class="kv-val" id="kv-ips-enabled">—</span></div>
-              <div class="kv-row"><span class="kv-key">default action</span><span class="kv-val g" id="kv-ips-action">—</span></div>
-              <div class="kv-row"><span class="kv-key">rules loaded</span><span class="kv-val" id="kv-ips-rules">—</span></div>
-              <div class="kv-row"><span class="kv-key">inspected</span><span class="kv-val" id="kv-ips-inspected">—</span></div>
-              <div class="kv-row"><span class="kv-key">passed</span><span class="kv-val g" id="kv-ips-passed">—</span></div>
-              <div class="kv-row"><span class="kv-key">dropped</span><span class="kv-val r" id="kv-ips-dropped">—</span></div>
-              <div class="kv-row"><span class="kv-key">alerted</span><span class="kv-val o" id="kv-ips-alerted">—</span></div>
+            <div class="card-header"><span class="card-title">// Runtime Config</span></div>
+            <div class="kv-list" id="runtime-kv">
+              <div class="kv-row"><span class="kv-key">capture interface</span><span class="kv-val c" id="rc-iface">—</span></div>
+              <div class="kv-row"><span class="kv-key">primary mode</span><span class="kv-val" id="rc-mode">—</span></div>
+              <div class="kv-row"><span class="kv-key">promiscuous</span><span class="kv-val g" id="rc-promisc">—</span></div>
+              <div class="kv-row"><span class="kv-key">snap_len</span><span class="kv-val" id="rc-snaplen">—</span></div>
+              <div class="kv-row"><span class="kv-key">IPS mode</span><span class="kv-val o" id="rc-ips-mode">—</span></div>
+              <div class="kv-row"><span class="kv-key">PCAP trigger</span><span class="kv-val" id="rc-pcap-trigger">—</span></div>
+              <div class="kv-row"><span class="kv-key">ring buffer</span><span class="kv-val" id="rc-ringbuf">—</span></div>
+              <div class="kv-row"><span class="kv-key">DLQ retention</span><span class="kv-val" id="rc-dlq-ret">—</span></div>
+              <div class="kv-row"><span class="kv-key">Kafka topic</span><span class="kv-val c" id="rc-kafka-topic">—</span></div>
             </div>
           </div>
         </div>
@@ -552,33 +662,79 @@ td { padding: 9px 16px; color: var(--text); white-space: nowrap; }
       <div class="page" id="page-flows">
         <div class="page-header">
           <div>
-            <div class="ph-title">Flow Tracker</div>
-            <div class="ph-sub">// 5-tuple bidirectional flow tracking · LRU eviction · idle timeout</div>
+            <div class="ph-title" style="font-size: 1.8rem;">Flow Tracker</div>
+            <div class="ph-sub">// 5-tuple flow tracking &middot; 14 ML features extracted per flow &middot; real-time anomaly scoring</div>
+          </div>
+          <div class="action-bar">
+            <button class="btn" onclick="exportFlowsCSV()">⬇ Export CSV</button>
+            <button class="btn primary" onclick="pollFlows()">↻ Refresh</button>
           </div>
         </div>
-        <div class="stats-row">
-          <div class="stat-card"><div class="sc-label">Active Flows</div><div class="sc-val" id="flow-active">—</div><div class="sc-delta flat">live count</div></div>
+
+        <div class="stats-row" style="grid-template-columns: repeat(5, 1fr);">
+          <div class="stat-card"><div class="sc-label">Total Flows</div><div class="sc-val" id="ft-total">—</div><div class="sc-delta up" id="ft-total-rate"></div></div>
+          <div class="stat-card g"><div class="sc-label">TCP Flows</div><div class="sc-val" id="ft-tcp">—</div><div class="sc-delta flat" id="ft-tcp-pct"></div></div>
+          <div class="stat-card"><div class="sc-label" style="color:var(--cyan);">UDP Flows</div><div class="sc-val" id="ft-udp">—</div><div class="sc-delta flat" id="ft-udp-pct"></div></div>
+          <div class="stat-card r"><div class="sc-label">Anomalous</div><div class="sc-val" id="ft-anomalous">—</div><div class="sc-delta" id="ft-anomalous-sub" style="color:var(--orange);"></div></div>
+          <div class="stat-card p"><div class="sc-label">Avg Duration</div><div class="sc-val" id="ft-avg-dur">—</div><div class="sc-delta flat">~ normal</div></div>
         </div>
+
+        <!-- Top Anomalous Flows -->
+        <div class="section-divider">// Top Anomalous Flows</div>
         <div class="card">
-          <div class="card-header"><span class="card-title">// 14-Feature ML Array (per flow)</span></div>
+          <div class="card-header" style="display:flex; justify-content: space-between; align-items: center;">
+            <span class="card-title">// Flows with ML Anomaly Score &gt; 0.5</span>
+            <select id="ft-proto-filter" onchange="renderFlowsTable()" style="background:var(--surface3);color:var(--text);border:1px solid var(--border2);border-radius:3px;padding:4px 10px;font-family:var(--mono);font-size:0.6rem;outline:none;cursor:pointer;">
+              <option value="">All Protocols</option>
+              <option value="TCP">TCP</option>
+              <option value="UDP">UDP</option>
+              <option value="ICMP">ICMP</option>
+            </select>
+          </div>
+          <div class="table-wrap" style="max-height:340px; overflow-y:auto;">
+            <table>
+              <thead>
+                <tr>
+                  <th>Src IP</th>
+                  <th>Dst IP:Port</th>
+                  <th>Proto</th>
+                  <th>Bytes Ratio</th>
+                  <th>DNS Entropy</th>
+                  <th>Beaconing</th>
+                  <th>Conn Rate</th>
+                  <th>Off-Hours %</th>
+                  <th>ML Score</th>
+                </tr>
+              </thead>
+              <tbody id="ft-flows-tbody"><!-- populated by JS --></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- 14 ML Feature Definitions -->
+        <div class="section-divider">// 14 ML Feature Definitions</div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">// Feature Extraction — per flow</span></div>
           <div class="table-wrap">
-            <table><thead><tr><th>#</th><th>Feature</th><th>Description</th></tr></thead>
-            <tbody>
-              <tr><td class="mono">01</td><td>conn_rate</td><td>Connection attempts/min from source</td></tr>
-              <tr><td class="mono">02</td><td>unique_dst</td><td>Unique destination IPs contacted</td></tr>
-              <tr><td class="mono">03</td><td>dns_entropy</td><td>Shannon entropy of DNS query names</td></tr>
-              <tr><td class="mono">04</td><td>beaconing_score</td><td>Regularity of connection intervals (C2)</td></tr>
-              <tr><td class="mono">05</td><td>traffic_asymmetry</td><td>Upload vs download byte ratio</td></tr>
-              <tr><td class="mono">06</td><td>off_hours_pct</td><td>% traffic outside business hours</td></tr>
-              <tr><td class="mono">07</td><td>iat_mean</td><td>Mean inter-arrival time</td></tr>
-              <tr><td class="mono">08</td><td>bytes_ratio</td><td>Sent-to-received byte ratio</td></tr>
-              <tr><td class="mono">09</td><td>protocol_entropy</td><td>Diversity of protocols used</td></tr>
-              <tr><td class="mono">10</td><td>port_entropy</td><td>Diversity of destination ports</td></tr>
-              <tr><td class="mono">11</td><td>packet_size_var</td><td>Variance in packet sizes</td></tr>
-              <tr><td class="mono">12</td><td>tcp_flag_anomaly</td><td>Unusual TCP flag combos</td></tr>
-              <tr><td class="mono">13</td><td>payload_entropy</td><td>Shannon entropy of payload</td></tr>
-              <tr><td class="mono">14</td><td>geo_distance</td><td>Geographic distance from baseline</td></tr>
-            </tbody></table>
+            <table>
+              <thead><tr><th>#</th><th>Feature</th><th>Description</th><th style="text-align:right;">Type</th></tr></thead>
+              <tbody>
+                <tr><td class="mono">01</td><td>conn_rate</td><td>Connection attempts per minute from this source</td><td style="text-align:right;"><span class="badge info">BEHAVIORAL</span></td></tr>
+                <tr><td class="mono">02</td><td>unique_dst</td><td>Unique destination IPs contacted</td><td style="text-align:right;"><span class="badge info">BEHAVIORAL</span></td></tr>
+                <tr><td class="mono">03</td><td>dns_entropy</td><td>Shannon entropy of DNS query hostnames</td><td style="text-align:right;"><span class="badge active">NETWORK</span></td></tr>
+                <tr><td class="mono">04</td><td>beaconing_score</td><td>Regularity of connection intervals (C2 indicator)</td><td style="text-align:right;"><span class="badge info">BEHAVIORAL</span></td></tr>
+                <tr><td class="mono">05</td><td>traffic_asymmetry</td><td>Upload vs download byte ratio deviation</td><td style="text-align:right;"><span class="badge active">NETWORK</span></td></tr>
+                <tr><td class="mono">06</td><td>off_hours_pct</td><td>% of traffic occurring outside business hours</td><td style="text-align:right;"><span class="badge warn">TEMPORAL</span></td></tr>
+                <tr><td class="mono">07</td><td>iat_mean</td><td>Mean inter-arrival time between packets</td><td style="text-align:right;"><span class="badge active">NETWORK</span></td></tr>
+                <tr><td class="mono">08</td><td>bytes_ratio</td><td>Bytes per packet ratio</td><td style="text-align:right;"><span class="badge active">NETWORK</span></td></tr>
+                <tr><td class="mono">09</td><td>protocol_entropy</td><td>Diversity of protocols used by source</td><td style="text-align:right;"><span class="badge info">BEHAVIORAL</span></td></tr>
+                <tr><td class="mono">10</td><td>port_entropy</td><td>Diversity of destination ports targeted</td><td style="text-align:right;"><span class="badge info">BEHAVIORAL</span></td></tr>
+                <tr><td class="mono">11</td><td>packet_size_var</td><td>Statistical variance in packet sizes</td><td style="text-align:right;"><span class="badge active">NETWORK</span></td></tr>
+                <tr><td class="mono">12</td><td>tcp_flag_anomaly</td><td>Unusual TCP flag combinations (SYN+FIN, XMAS)</td><td style="text-align:right;"><span class="badge active">NETWORK</span></td></tr>
+                <tr><td class="mono">13</td><td>payload_entropy</td><td>Shannon entropy of packet payload bytes</td><td style="text-align:right;"><span class="badge active">NETWORK</span></td></tr>
+                <tr><td class="mono">14</td><td>geo_distance</td><td>Geographic distance from network baseline</td><td style="text-align:right;"><span class="badge warn">TEMPORAL</span></td></tr>
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -752,7 +908,10 @@ td { padding: 9px 16px; color: var(--text); white-space: nowrap; }
             <span class="card-title" style="font-size: 12px; letter-spacing: 1px;">// GE-SENSOR.YML — PRODUCTION</span>
             <span class="config-status" id="config-status" style="text-align: right;">● ready</span>
           </div>
-          <textarea id="config-editor" class="code-editor" spellcheck="false"></textarea>
+          <div class="editor-container" id="editor-container">
+            <textarea id="config-editor" spellcheck="false" oninput="syncHighlight()" onscroll="syncScroll()"></textarea>
+            <pre id="config-highlight" aria-hidden="true"></pre>
+          </div>
         </div>
       </div>
 
@@ -817,13 +976,83 @@ async function toggleDissector(name, state) {
   } catch(e) { console.error('Failed to toggle', e); }
 }
 
-// ═══ CONFIGURATION ═══
+// ═══ CONFIGURATION (with YAML syntax highlighting) ═══
+function highlightYaml(text) {
+  // Escape HTML first
+  let html = text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  // Process line by line for accurate highlighting
+  return html.split('\n').map(line => {
+    // Full-line comment
+    if (/^\s*#/.test(line)) {
+      return '<span class="yl-comment">' + line + '</span>';
+    }
+    // Inline comment: split at the first # that's not inside quotes
+    let main = line, comment = '';
+    const commentMatch = line.match(/^([^#"]*(?:"[^"]*"[^#"]*)*)#(.*)$/);
+    if (commentMatch) {
+      main = commentMatch[1];
+      comment = '<span class="yl-comment">#' + commentMatch[2] + '</span>';
+    }
+    // Key: value pattern
+    const kvMatch = main.match(/^(\s*)(\S[^:]*?)(:)(\s*)(.*)$/);
+    if (kvMatch) {
+      const indent = kvMatch[1];
+      const key = kvMatch[2];
+      const colon = kvMatch[3];
+      const space = kvMatch[4];
+      let val = kvMatch[5];
+      // Determine key class: section keys (no indent or 0-space indent)
+      const keyClass = indent.length === 0 ? 'yl-seckey' : 'yl-key';
+      // Highlight value
+      val = highlightValue(val);
+      return indent + '<span class="' + keyClass + '">' + key + '</span><span class="yl-colon">' + colon + '</span>' + space + val + comment;
+    }
+    return main + comment;
+  }).join('\n');
+}
+
+function highlightValue(val) {
+  if (!val) return val;
+  const trimmed = val.trim();
+  // Boolean true
+  if (trimmed === 'true') return val.replace('true', '<span class="yl-bool-t">true</span>');
+  // Boolean false
+  if (trimmed === 'false') return val.replace('false', '<span class="yl-bool-f">false</span>');
+  // Quoted string
+  if (/^".*"$/.test(trimmed)) return val.replace(trimmed, '<span class="yl-string">' + trimmed + '</span>');
+  // Number
+  if (/^\d[\d.]*$/.test(trimmed)) return val.replace(trimmed, '<span class="yl-number">' + trimmed + '</span>');
+  // Bare string value or list item
+  if (trimmed.startsWith('- ')) {
+    const inner = trimmed.substring(2);
+    if (/^".*"$/.test(inner)) return val.replace(inner, '<span class="yl-string">' + inner + '</span>');
+    return val;
+  }
+  // Bare value (like topic name)
+  if (trimmed.length > 0 && !trimmed.endsWith(':')) return val.replace(trimmed, '<span class="yl-string">' + trimmed + '</span>');
+  return val;
+}
+
+function syncHighlight() {
+  const textarea = document.getElementById('config-editor');
+  const pre = document.getElementById('config-highlight');
+  pre.innerHTML = highlightYaml(textarea.value) + '\n';
+}
+
+function syncScroll() {
+  const textarea = document.getElementById('config-editor');
+  const container = document.getElementById('editor-container');
+  const pre = document.getElementById('config-highlight');
+  pre.style.transform = 'translateY(' + (-textarea.scrollTop) + 'px)';
+}
+
 async function fetchConfig() {
   try {
     const res = await fetch('/api/config');
     const json = await res.json();
     if(json.yaml) {
-      document.getElementById('config-editor').value = json.yaml.replace(/\\n/g, '\n').replace(/\\"/g, '"');
+      document.getElementById('config-editor').value = json.yaml;
+      syncHighlight();
       document.getElementById('config-status').innerText = '● last loaded ' + new Date().toISOString().substring(11,19) + ' UTC';
       document.getElementById('config-status').style.color = 'rgba(0,255,200,0.6)';
     }
@@ -845,7 +1074,7 @@ async function saveConfig() {
       document.getElementById('config-status').style.color = '#00ffc8';
       btn.innerHTML = 'Saved!';
       setTimeout(() => btn.innerHTML = orgText, 2000);
-      poll(); // refresh UI state to reflect changes
+      poll();
     } else {
       throw new Error('Server returned ' + res.status);
     }
@@ -881,6 +1110,40 @@ showPage = function(name, sidebarEl, tabEl) {
   }
 };
 
+// ═══ THROUGHPUT CHART ═══
+let throughputHistory = [];
+let lastPacketCount = null;
+
+function updateThroughputChart(currentTotal) {
+  if (lastPacketCount !== null) {
+    const delta = Math.max(0, currentTotal - lastPacketCount);
+    throughputHistory.push(delta);
+    if (throughputHistory.length > 12) throughputHistory.shift();
+  }
+  lastPacketCount = currentTotal;
+
+  const chart = document.getElementById('throughput-chart');
+  if (!chart || throughputHistory.length === 0) return;
+
+  const peak = Math.max(...throughputHistory, 1);
+  chart.innerHTML = '';
+  throughputHistory.forEach((val, i) => {
+    const pct = Math.max(4, (val / peak) * 100);
+    const bar = document.createElement('div');
+    bar.style.cssText = 'flex:1;background:linear-gradient(to top,rgba(0,210,255,0.7),rgba(0,210,255,0.35));border-radius:2px 2px 0 0;min-width:0;height:' + pct + '%;transition:height 0.3s ease;';
+    chart.appendChild(bar);
+  });
+
+  const peakEl = document.getElementById('throughput-peak');
+  if (peakEl) peakEl.textContent = fmtK(peak) + ' pkt/s peak';
+}
+
+function fmtK(n) {
+  if (n >= 1000000) return (n/1000000).toFixed(1) + 'M';
+  if (n >= 1000) return (n/1000).toFixed(0) + 'K';
+  return n.toString();
+}
+
 // ═══ LIVE DATA POLLING ═══
 async function poll() {
   try {
@@ -911,26 +1174,23 @@ async function poll() {
     document.getElementById('s-dlq').textContent = fmtBytes(s.dlq.size_bytes);
     document.getElementById('s-rules').textContent = s.ips.rules_count.toLocaleString();
     document.getElementById('s-dropped').textContent = s.ips.packets_dropped.toLocaleString();
-
-    // Capture KV + interface selector
-    document.getElementById('kv-iface').textContent = s.capture.interface;
-    document.getElementById('kv-mode').textContent = s.capture.mode;
-    document.getElementById('kv-promisc').textContent = s.capture.promiscuous ? 'true' : 'false';
-    document.getElementById('kv-snaplen').textContent = s.capture.snap_len + ' bytes';
+    // Runtime Config panel
+    document.getElementById('rc-iface').textContent = s.capture.interface;
+    document.getElementById('rc-mode').textContent = s.capture.mode.toUpperCase();
+    document.getElementById('rc-promisc').textContent = s.capture.promiscuous ? 'true' : 'false';
+    document.getElementById('rc-snaplen').textContent = s.capture.snap_len + ' bytes';
+    document.getElementById('rc-ips-mode').textContent = s.ips.mode.toUpperCase() + (s.ips.mode === 'tap' ? ' (passive)' : ' (active)');
+    document.getElementById('rc-pcap-trigger').textContent = 'ALERT';
+    document.getElementById('rc-ringbuf').textContent = '512 MB';
+    document.getElementById('rc-dlq-ret').textContent = '7 days';
+    document.getElementById('rc-kafka-topic').textContent = s.kafka.topic;
     updateIfaceDisplay(s.capture.interface);
 
-    // IPS KV (overview)
-    document.getElementById('kv-ips-mode').textContent = s.ips.mode.toUpperCase();
-    document.getElementById('kv-ips-enabled').textContent = s.ips.enabled ? 'yes' : 'no';
-    document.getElementById('kv-ips-action').textContent = s.ips.default_action;
-    document.getElementById('kv-ips-rules').textContent = s.ips.rules_count;
-    document.getElementById('kv-ips-inspected').textContent = s.ips.packets_inspected.toLocaleString();
-    document.getElementById('kv-ips-passed').textContent = s.ips.packets_passed.toLocaleString();
-    document.getElementById('kv-ips-dropped').textContent = s.ips.packets_dropped.toLocaleString();
-    document.getElementById('kv-ips-alerted').textContent = s.ips.packets_alerted.toLocaleString();
+    // Throughput chart — track last 12 samples
+    updateThroughputChart(s.capture.packets_total);
 
-    // Flows page
-    document.getElementById('flow-active').textContent = s.flows.active_flows.toLocaleString();
+    // Flows page — trigger separate /api/flows polling
+    pollFlows();
 
     // IPS page
     document.getElementById('ips-inspected').textContent = s.ips.packets_inspected.toLocaleString();
@@ -986,6 +1246,87 @@ async function poll() {
 setInterval(poll, 2000);
 poll();
 addLog('info', 'ge-sensor dashboard initialized — polling /api/state every 2s');
+
+// ═══ FLOW TRACKER ═══
+let flowsData = { flows: [], total_flows: 0, tcp_flows: 0, udp_flows: 0, anomalous: 0, avg_duration: 0 };
+
+async function pollFlows() {
+  try {
+    const resp = await fetch('/api/flows');
+    if (!resp.ok) return;
+    flowsData = await resp.json();
+    updateFlowStats();
+    renderFlowsTable();
+  } catch(e) { /* silent */ }
+}
+
+function updateFlowStats() {
+  const d = flowsData;
+  document.getElementById('ft-total').textContent = d.total_flows.toLocaleString();
+  document.getElementById('ft-tcp').textContent = d.tcp_flows.toLocaleString();
+  document.getElementById('ft-udp').textContent = d.udp_flows.toLocaleString();
+  document.getElementById('ft-anomalous').textContent = d.anomalous.toLocaleString();
+  document.getElementById('ft-avg-dur').textContent = d.avg_duration.toFixed(2);
+
+  // Percentage labels
+  if(d.total_flows > 0) {
+    document.getElementById('ft-tcp-pct').textContent = Math.round(d.tcp_flows / d.total_flows * 100) + '%';
+    document.getElementById('ft-udp-pct').textContent = Math.round(d.udp_flows / d.total_flows * 100) + '%';
+  }
+  document.getElementById('ft-anomalous-sub').textContent = d.anomalous > 0 ? 'needs review' : 'all clear';
+}
+
+function renderFlowsTable() {
+  const tbody = document.getElementById('ft-flows-tbody');
+  const proto = document.getElementById('ft-proto-filter').value;
+
+  let flows = flowsData.flows;
+  if(proto) {
+    flows = flows.filter(f => f.protocol === proto);
+  }
+
+  tbody.innerHTML = '';
+  flows.forEach(f => {
+    const tr = document.createElement('tr');
+    const scoreColor = f.ml_score > 0.7 ? 'var(--red)' : f.ml_score > 0.4 ? 'var(--orange)' : f.ml_score > 0.2 ? 'var(--yellow)' : 'var(--green)';
+    const scoreBg = f.ml_score > 0.7 ? 'rgba(255,62,94,0.15)' : f.ml_score > 0.4 ? 'rgba(255,140,66,0.12)' : f.ml_score > 0.2 ? 'rgba(255,209,102,0.1)' : 'rgba(0,255,157,0.08)';
+    const scoreBorder = f.ml_score > 0.7 ? 'rgba(255,62,94,0.35)' : f.ml_score > 0.4 ? 'rgba(255,140,66,0.3)' : f.ml_score > 0.2 ? 'rgba(255,209,102,0.25)' : 'rgba(0,255,157,0.2)';
+
+    tr.innerHTML =
+      '<td class="mono">' + f.src_ip + '</td>' +
+      '<td class="mono">' + f.dst_ip + ':' + f.dst_port + '</td>' +
+      '<td><span class="badge ' + (f.protocol === 'TCP' ? 'active' : f.protocol === 'UDP' ? 'info' : 'idle') + '">' + f.protocol + '</span></td>' +
+      '<td class="mono">' + f.bytes_ratio.toFixed(2) + '</td>' +
+      '<td class="mono">' + f.dns_entropy.toFixed(2) + '</td>' +
+      '<td class="mono">' + f.beaconing_score.toFixed(2) + '</td>' +
+      '<td class="mono">' + Math.round(f.conn_rate) + '/min</td>' +
+      '<td class="mono">' + Math.round(f.off_hours_pct * 100) + '%</td>' +
+      '<td><span style="display:inline-block;padding:3px 10px;border-radius:3px;font-family:var(--mono);font-size:0.62rem;font-weight:700;color:' + scoreColor + ';background:' + scoreBg + ';border:1px solid ' + scoreBorder + ';min-width:42px;text-align:center;">' + f.ml_score.toFixed(2) + '</span></td>';
+    tbody.appendChild(tr);
+  });
+
+  if(flows.length === 0) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = '<td colspan="9" style="text-align:center;color:var(--muted);padding:24px;">No flows detected yet</td>';
+    tbody.appendChild(tr);
+  }
+}
+
+function exportFlowsCSV() {
+  const rows = [['src_ip','dst_ip','dst_port','protocol','bytes_ratio','dns_entropy','beaconing_score','conn_rate','off_hours_pct','ml_score']];
+  flowsData.flows.forEach(f => {
+    rows.push([f.src_ip, f.dst_ip, f.dst_port, f.protocol, f.bytes_ratio.toFixed(4), f.dns_entropy.toFixed(4), f.beaconing_score.toFixed(4), f.conn_rate.toFixed(2), f.off_hours_pct.toFixed(4), f.ml_score.toFixed(4)]);
+  });
+  const csv = rows.map(r => r.join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'ge-sensor-flows.csv';
+  a.click();
+}
+
+setInterval(pollFlows, 3000);
+pollFlows();
 
 // ═══ PACKETS TAB (Wireshark-style) ═══
 let packetsPaused = false;

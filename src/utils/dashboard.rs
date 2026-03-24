@@ -10,6 +10,7 @@
 //!   GET  /health           → JSON health check
 
 use crate::config::Config;
+use crate::flow::features;
 use crate::flow::tracker::FlowTracker;
 use crate::ips::{IpsEngine, IpsMode, Verdict};
 use crate::utils::logging::Metrics;
@@ -308,6 +309,38 @@ pub struct InterfaceInfo {
     pub name: String, pub description: String, pub active: bool,
 }
 
+/// A single flow record for the Flow Tracker API.
+#[derive(Serialize)]
+pub struct FlowDetailRecord {
+    pub src_ip: String,
+    pub dst_ip: String,
+    pub src_port: u16,
+    pub dst_port: u16,
+    pub protocol: String,
+    pub fwd_packets: u64,
+    pub rev_packets: u64,
+    pub fwd_bytes: u64,
+    pub rev_bytes: u64,
+    pub duration_secs: f64,
+    pub bytes_ratio: f32,
+    pub dns_entropy: f32,
+    pub beaconing_score: f32,
+    pub conn_rate: f32,
+    pub off_hours_pct: f32,
+    pub ml_score: f32,
+}
+
+/// Aggregated flows response for `/api/flows`.
+#[derive(Serialize)]
+pub struct FlowsResponse {
+    pub total_flows: usize,
+    pub tcp_flows: usize,
+    pub udp_flows: usize,
+    pub anomalous: usize,
+    pub avg_duration: f64,
+    pub flows: Vec<FlowDetailRecord>,
+}
+
 impl AppState {
     pub fn list_interfaces(&self) -> Vec<InterfaceInfo> {
         let current = self.capture_interface.read().unwrap().clone();
@@ -332,6 +365,78 @@ impl AppState {
 
     pub fn recent_packets(&self) -> Vec<PacketRecord> {
         self.packet_ring.lock().unwrap().recent()
+    }
+
+    /// Build the flows response with per-flow ML features.
+    pub fn flow_details(&self) -> FlowsResponse {
+        let tracker = self.flow_tracker.lock().unwrap();
+        let now = std::time::Instant::now();
+
+        let mut flow_records = Vec::new();
+        let mut tcp_count = 0usize;
+        let mut udp_count = 0usize;
+        let mut total_duration = 0.0f64;
+
+        let all_flows = tracker.all_flows();
+
+        for record in &all_flows {
+            let feats = features::extract_features(record);
+
+            let proto_name = match record.key.protocol {
+                6 => { tcp_count += 1; "TCP" }
+                17 => { udp_count += 1; "UDP" }
+                1 => "ICMP",
+                _ => "OTHER",
+            };
+
+            let duration = now.duration_since(record.first_seen).as_secs_f64();
+            total_duration += duration;
+
+            // Compute composite ML score: weighted average of key anomaly features
+            let ml_score = (
+                feats[features::idx::BEACONING_SCORE] * 0.25 +
+                feats[features::idx::DNS_ENTROPY].min(5.0) / 5.0 * 0.15 +
+                feats[features::idx::TRAFFIC_ASYMMETRY] * 0.15 +
+                feats[features::idx::TCP_FLAG_ANOMALY] * 0.25 +
+                feats[features::idx::OFF_HOURS_PCT] * 0.10 +
+                (feats[features::idx::CONN_RATE].min(1000.0) / 1000.0) * 0.10
+            ).min(1.0);
+
+            flow_records.push(FlowDetailRecord {
+                src_ip: record.key.src_ip.to_string(),
+                dst_ip: record.key.dst_ip.to_string(),
+                src_port: record.key.src_port,
+                dst_port: record.key.dst_port,
+                protocol: proto_name.to_string(),
+                fwd_packets: record.fwd_packets,
+                rev_packets: record.rev_packets,
+                fwd_bytes: record.fwd_bytes,
+                rev_bytes: record.rev_bytes,
+                duration_secs: duration,
+                bytes_ratio: feats[features::idx::BYTES_RATIO],
+                dns_entropy: feats[features::idx::DNS_ENTROPY],
+                beaconing_score: feats[features::idx::BEACONING_SCORE],
+                conn_rate: feats[features::idx::CONN_RATE],
+                off_hours_pct: feats[features::idx::OFF_HOURS_PCT],
+                ml_score,
+            });
+        }
+
+        // Sort by ml_score descending
+        flow_records.sort_by(|a, b| b.ml_score.partial_cmp(&a.ml_score).unwrap_or(std::cmp::Ordering::Equal));
+
+        let total = flow_records.len();
+        let anomalous = flow_records.iter().filter(|f| f.ml_score > 0.5).count();
+        let avg_duration = if total > 0 { total_duration / total as f64 } else { 0.0 };
+
+        FlowsResponse {
+            total_flows: total,
+            tcp_flows: tcp_count,
+            udp_flows: udp_count,
+            anomalous,
+            avg_duration,
+            flows: flow_records,
+        }
     }
 
     /// Toggle a dissector on or off at runtime

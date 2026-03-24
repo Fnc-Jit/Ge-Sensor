@@ -248,6 +248,11 @@ impl FlowTracker {
             .min_by_key(|(_, r)| r.last_seen)
             .map(|(k, _)| k.clone())
     }
+
+    /// Return all active flow records (cloned).
+    pub fn all_flows(&self) -> Vec<FlowRecord> {
+        self.flows.values().cloned().collect()
+    }
 }
 
 #[cfg(test)]

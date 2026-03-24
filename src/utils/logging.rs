@@ -162,11 +162,18 @@ pub async fn start_metrics_server(
                                 Err(e) => ("500 Internal Server Error", "application/json",
                                            format!(r#"{{"error":"{}"}}"#, e)),
                             }
+                        } else if request.contains("GET /api/flows") {
+                            let flows = state.flow_details();
+                            match serde_json::to_string(&flows) {
+                                Ok(json) => ("200 OK", "application/json", json),
+                                Err(e) => ("500 Internal Server Error", "application/json",
+                                           format!(r#"{{"error":"{}"}}"#, e)),
+                            }
                         } else if request.contains("GET /api/config") {
                             match std::fs::read_to_string("configs/ge-sensor.yml") {
                                 Ok(yaml) => {
-                                    let escaped = yaml.replace('\n', "\\n").replace('"', "\\\"");
-                                    ("200 OK", "application/json", format!(r#"{{"yaml":"{}"}}"#, escaped))
+                                    let json_val = serde_json::json!({"yaml": yaml});
+                                    ("200 OK", "application/json", json_val.to_string())
                                 }
                                 Err(e) => ("500 Internal Server Error", "application/json", format!(r#"{{"error":"{}"}}"#, e)),
                             }
