@@ -1,0 +1,88 @@
+# ge-sensor Default Configuration
+# God's Eye Network Sensor — Rust · AF_PACKET / AF_XDP / libpcap
+
+sensor:
+  name: ge-sensor-01
+  environment: production
+  log_level: info
+
+capture:
+  interface: eth0
+  mode: libpcap           # libpcap | af_packet | af_xdp
+  promisc: true
+  snap_len: 65535
+
+dissectors:
+  tcp: true
+  udp: true
+  icmp: true
+  dns: true
+  http: true
+  tls: true
+  ntp: true
+  dhcp: true
+  modbus: false
+  dnp3: false
+  bacnet: false
+  ethernet_ip: false
+
+pcap:
+  enabled: true
+  trigger: alert           # alert | always | off
+  ring_buffer_mb: 512
+  retention_days: 7
+
+ips:
+  enabled: false
+  mode: tap                # inline | tap
+  default_action: pass
+
+inputs:
+  syslog:
+    enabled: true
+    protocol: udp
+    host: 0.0.0.0
+    port: 1514
+  netflow:
+    enabled: true
+    protocol: udp
+    host: 0.0.0.0
+    port: 2055
+  snmp:
+    enabled: true
+    protocol: udp
+    host: 0.0.0.0
+    port: 162
+  ipfix:
+    enabled: true
+    protocol: udp
+    host: 0.0.0.0
+    port: 4739
+  wef:
+    enabled: false
+    protocol: tcp
+    host: 0.0.0.0
+    port: 5985
+  http_webhook:
+    enabled: true
+    protocol: tcp
+    host: 0.0.0.0
+    port: 8514
+
+output:
+  kafka:
+    brokers:
+      - "kafka-1:9092"
+      - "kafka-2:9092"
+      - "kafka-3:9092"
+    topic: ge.raw.logs
+    mtls:
+      enabled: true
+      cert: /etc/ge/certs/sensor.crt
+      key: /etc/ge/certs/sensor.key
+      ca: /etc/ge/certs/ca.crt
+  dlq:
+    enabled: true
+    path: /var/lib/ge-sensor/dlq
+    max_gb: 10
+    retention_days: 7

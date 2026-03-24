@@ -1,0 +1,70 @@
+[package]
+name = "ge-sensor"
+version = "0.1.0"
+edition = "2021"
+authors = ["God's Eye Platform <godseye@example.com>"]
+description = "High-performance network capture & IDS/IPS daemon for the God's Eye SIEM Platform"
+license = "Proprietary"
+rust-version = "1.75"
+
+[features]
+default = ["libpcap_capture"]
+libpcap_capture = ["dep:pcap"]
+af_packet = []
+af_xdp = []
+ips_inline = []
+
+[dependencies]
+# -- Config & Validation --
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+validator = { version = "0.18", features = ["derive"] }
+
+# -- CLI --
+clap = { version = "4", features = ["derive"] }
+
+# -- Logging & Tracing --
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+# -- Metrics & HTTP --
+prometheus = "0.13"
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+
+# -- Async Runtime --
+tokio = { version = "1", features = ["full"] }
+
+# -- Packet Capture --
+pcap = { version = "2", optional = true }
+
+# -- Network Utilities --
+libc = "0.2"
+
+# -- Time --
+chrono = { version = "0.4", features = ["serde"] }
+
+# -- Error Handling --
+anyhow = "1"
+thiserror = "1"
+
+# -- Kafka (Phase 5) --
+# rdkafka = { version = "0.36", features = ["cmake-build"] }
+
+# -- DLQ (Phase 5) --
+# rocksdb = "0.22"
+
+# -- PCAP Ring Buffer (Phase 6) --
+# memmap2 = "0.9"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

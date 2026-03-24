@@ -1,0 +1,1214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ge-sensor — God's Eye</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:        #03050d;
+  --surface:   #070b17;
+  --surface2:  #0b1020;
+  --surface3:  #0f1528;
+  --border:    rgba(0,210,255,0.1);
+  --border2:   rgba(0,210,255,0.06);
+  --cyan:      #00d4ff;
+  --cyan2:     #00a8cc;
+  --green:     #00ff9d;
+  --orange:    #ff8c42;
+  --red:       #ff3e5e;
+  --yellow:    #ffd166;
+  --purple:    #b66fff;
+  --text:      #c8e0ff;
+  --muted:     rgba(150,190,240,0.45);
+  --mono:      'Share Tech Mono', monospace;
+  --ui:        'Syne', sans-serif;
+  --glow:      0 0 24px rgba(0,210,255,0.25);
+  --glow-sm:   0 0 10px rgba(0,210,255,0.2);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--ui);
+  display: flex;
+  flex-direction: column;
+}
+
+body::after {
+  content: '';
+  position: fixed; inset: 0; pointer-events: none; z-index: 9999;
+  background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.07) 2px, rgba(0,0,0,0.07) 4px);
+}
+
+/* ═══ TOPBAR ═══ */
+.topbar {
+  height: 50px; background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center;
+  padding: 0 20px; gap: 16px; flex-shrink: 0; z-index: 200;
+}
+.topbar-brand { display: flex; align-items: center; gap: 9px; }
+.tb-eye {
+  width: 20px; height: 20px; border: 1.5px solid var(--cyan);
+  border-radius: 50%; position: relative; flex-shrink: 0;
+  box-shadow: var(--glow-sm);
+}
+.tb-eye::after {
+  content: ''; position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%,-50%);
+  width: 7px; height: 7px; background: var(--cyan); border-radius: 50%;
+  animation: eyepulse 2s infinite;
+}
+@keyframes eyepulse {
+  0%,100% { box-shadow: 0 0 4px var(--cyan); opacity: 1; }
+  50%     { box-shadow: 0 0 10px var(--cyan); opacity: 0.7; }
+}
+.tb-wordmark { font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.18em; color: #fff; }
+.tb-wordmark span { color: var(--cyan); }
+.tb-sep { width: 1px; height: 18px; background: var(--border); }
+.tb-breadcrumb { font-family: var(--mono); font-size: 0.62rem; color: var(--muted); letter-spacing: 0.1em; display: flex; align-items: center; gap: 6px; }
+.tb-breadcrumb .crumb-active { color: var(--cyan); }
+.topbar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.tb-status-pill {
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(0,255,157,0.06); border: 1px solid rgba(0,255,157,0.2);
+  border-radius: 20px; padding: 4px 12px;
+  font-family: var(--mono); font-size: 0.6rem; color: var(--green); letter-spacing: 0.08em;
+}
+.tb-dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--green); box-shadow: 0 0 5px var(--green);
+  animation: blink 1.4s infinite;
+}
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+.tb-clock { font-family: var(--mono); font-size: 0.62rem; color: var(--muted); letter-spacing: 0.06em; }
+
+/* ═══ LAYOUT ═══ */
+.layout { display: flex; flex: 1; overflow: hidden; }
+
+/* ═══ SIDEBAR ═══ */
+.sidebar {
+  width: 200px; background: var(--surface); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; flex-shrink: 0; overflow-y: auto;
+}
+.sidebar-tool-header { padding: 16px 16px 14px; border-bottom: 1px solid var(--border); }
+.sth-tag { font-family: var(--mono); font-size: 0.55rem; letter-spacing: 0.18em; color: var(--cyan); text-transform: uppercase; margin-bottom: 6px; opacity: 0.7; }
+.sth-name { font-size: 1.3rem; font-weight: 800; color: #fff; letter-spacing: 0.04em; }
+.sth-name span { color: var(--cyan); }
+.sth-lang { font-family: var(--mono); font-size: 0.58rem; color: var(--muted); margin-top: 3px; letter-spacing: 0.06em; }
+.sth-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: rgba(0,255,157,0.07); border: 1px solid rgba(0,255,157,0.2);
+  border-radius: 2px; padding: 3px 8px; margin-top: 8px;
+  font-family: var(--mono); font-size: 0.58rem; color: var(--green);
+}
+.sth-badge-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--green); box-shadow: 0 0 4px var(--green); animation: blink 1.4s infinite; }
+
+.sidebar-section { padding: 14px 10px 6px; }
+.sidebar-group-label { font-family: var(--mono); font-size: 0.55rem; letter-spacing: 0.18em; color: var(--muted); padding: 0 6px; margin-bottom: 4px; text-transform: uppercase; }
+.nav-item {
+  display: flex; align-items: center; gap: 9px; padding: 8px 8px;
+  border-radius: 3px; font-size: 0.78rem; font-weight: 500;
+  color: var(--muted); cursor: pointer; transition: all 0.15s;
+  border: 1px solid transparent; margin-bottom: 1px; position: relative;
+}
+.nav-item:hover { background: rgba(0,210,255,0.05); color: var(--text); }
+.nav-item.active { background: rgba(0,210,255,0.08); border-color: rgba(0,210,255,0.2); color: var(--cyan); }
+.nav-item.active::before { content: ''; position: absolute; left: 0; top: 20%; bottom: 20%; width: 2px; background: var(--cyan); border-radius: 0 2px 2px 0; box-shadow: 0 0 6px var(--cyan); }
+.nav-icon { font-size: 0.72rem; width: 14px; text-align: center; flex-shrink: 0; }
+.sidebar-divider { height: 1px; background: var(--border2); margin: 6px 10px; }
+.sidebar-mini-stats { padding: 10px 14px 14px; margin-top: auto; border-top: 1px solid var(--border2); }
+.sm-stat { margin-bottom: 8px; }
+.sm-label { font-family: var(--mono); font-size: 0.55rem; color: var(--muted); letter-spacing: 0.1em; margin-bottom: 3px; }
+.sm-val { font-size: 0.9rem; font-weight: 700; color: #fff; }
+.sm-sub { font-family: var(--mono); font-size: 0.55rem; color: var(--green); }
+
+/* ═══ MAIN ═══ */
+.main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.tab-bar {
+  display: flex; align-items: flex-end; gap: 2px;
+  padding: 0 24px; background: var(--surface);
+  border-bottom: 1px solid var(--border); flex-shrink: 0; overflow-x: auto;
+  scrollbar-width: none;
+}
+.tab-bar::-webkit-scrollbar { display: none; }
+.tab {
+  display: flex; align-items: center; gap: 6px;
+  padding: 10px 14px 9px; font-family: var(--mono); font-size: 0.65rem;
+  letter-spacing: 0.07em; color: var(--muted); cursor: pointer;
+  border-bottom: 2px solid transparent; white-space: nowrap;
+  transition: all 0.15s; flex-shrink: 0; margin-bottom: -1px;
+}
+.tab:hover { color: var(--text); }
+.tab.active { color: var(--cyan); border-bottom-color: var(--cyan); }
+.tab-dot { width: 5px; height: 5px; border-radius: 50%; background: currentColor; opacity: 0.6; }
+
+.page-area { flex: 1; overflow-y: auto; }
+.page { display: none; padding: 24px; animation: fadeUp 0.2s ease; }
+.page.active { display: block; }
+@keyframes fadeUp { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+
+/* ═══ COMPONENTS ═══ */
+.page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
+.ph-title { font-size: 1.35rem; font-weight: 800; color: #fff; letter-spacing: 0.03em; }
+.ph-sub { font-family: var(--mono); font-size: 0.62rem; color: var(--muted); letter-spacing: 0.09em; margin-top: 4px; }
+
+.stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 22px; }
+.stat-card { background: var(--surface2); border: 1px solid var(--border2); border-radius: 4px; padding: 14px 16px; position: relative; overflow: hidden; transition: border-color 0.2s; }
+.stat-card:hover { border-color: rgba(0,210,255,0.2); }
+.stat-card::after { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--cyan); }
+.stat-card.g::after { background: var(--green); }
+.stat-card.o::after { background: var(--orange); }
+.stat-card.r::after { background: var(--red); }
+.stat-card.p::after { background: var(--purple); }
+.sc-label { font-family: var(--mono); font-size: 0.58rem; color: var(--muted); letter-spacing: 0.12em; text-transform: uppercase; margin-bottom: 8px; }
+.sc-val { font-size: 1.65rem; font-weight: 800; color: #fff; line-height: 1; margin-bottom: 5px; }
+.sc-delta { font-family: var(--mono); font-size: 0.6rem; }
+.sc-delta.up { color: var(--green); }
+.sc-delta.flat { color: var(--muted); }
+
+.card { background: var(--surface2); border: 1px solid var(--border2); border-radius: 4px; overflow: hidden; margin-bottom: 18px; }
+.card-header { display: flex; align-items: center; justify-content: space-between; padding: 11px 16px; border-bottom: 1px solid var(--border2); }
+.card-title { font-family: var(--mono); font-size: 0.62rem; letter-spacing: 0.13em; color: var(--muted); text-transform: uppercase; }
+
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+thead th { text-align: left; padding: 9px 16px; font-family: var(--mono); font-size: 0.58rem; letter-spacing: 0.12em; color: var(--muted); border-bottom: 1px solid var(--border2); white-space: nowrap; text-transform: uppercase; }
+tbody tr { border-bottom: 1px solid rgba(255,255,255,0.03); transition: background 0.1s; }
+tbody tr:hover { background: rgba(0,210,255,0.03); }
+td { padding: 9px 16px; color: var(--text); white-space: nowrap; }
+.mono { font-family: var(--mono); font-size: 0.68rem; color: var(--muted); }
+
+.badge { display: inline-block; padding: 2px 7px; border-radius: 2px; font-family: var(--mono); font-size: 0.58rem; letter-spacing: 0.05em; }
+.badge.active { background:rgba(0,255,157,0.1); color:var(--green); border:1px solid rgba(0,255,157,0.25); }
+.badge.idle { background:rgba(255,255,255,0.04); color:var(--muted); border:1px solid var(--border2); }
+.badge.warn { background:rgba(255,140,66,0.1); color:var(--orange); border:1px solid rgba(255,140,66,0.25); }
+.badge.error { background:rgba(255,62,94,0.1); color:var(--red); border:1px solid rgba(255,62,94,0.25); }
+.badge.info { background:rgba(182,111,255,0.1); color:var(--purple); border:1px solid rgba(182,111,255,0.25); }
+
+.kv-list { display: flex; flex-direction: column; gap: 9px; padding: 14px 16px; }
+.kv-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.kv-key { font-family: var(--mono); font-size: 0.63rem; color: var(--muted); flex-shrink: 0; }
+.kv-val { font-family: var(--mono); font-size: 0.67rem; color: var(--text); text-align: right; }
+.kv-val.c { color: var(--cyan); }
+.kv-val.g { color: var(--green); }
+.kv-val.o { color: var(--orange); }
+.kv-val.r { color: var(--red); }
+
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 18px; }
+@media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } }
+
+.section-divider {
+  font-family: var(--mono); font-size: 0.58rem; letter-spacing: 0.18em;
+  color: var(--muted); text-transform: uppercase; padding: 6px 0 10px;
+  display: flex; align-items: center; gap: 10px;
+}
+.section-divider::after { content: ''; flex: 1; height: 1px; background: var(--border2); }
+
+.dissector-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; padding: 14px 16px; }
+.dissector-item { background: var(--surface3); border: 1px solid var(--border2); border-radius: 3px; padding: 10px 12px; transition: all 0.15s; position: relative; }
+.dissector-item.on { border-color: rgba(0,210,255,0.3); background: rgba(0,210,255,0.05); }
+.dissector-item.on .di-name { color: var(--cyan); }
+.di-proto { font-family: var(--mono); font-size: 0.55rem; color: var(--muted); letter-spacing: 0.1em; margin-bottom: 4px; }
+.di-name { font-size: 0.8rem; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+.di-hits { font-family: var(--mono); font-size: 0.6rem; color: var(--muted); }
+.di-status { position: absolute; top: 8px; right: 8px; }
+
+.log-stream {
+  background: #020408; border-radius: 3px; padding: 12px 14px;
+  height: 300px; overflow-y: auto;
+  font-family: var(--mono); font-size: 0.63rem; line-height: 1.9;
+  scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.08) transparent;
+}
+.log-line { display: flex; gap: 10px; }
+.ll-time { color: var(--muted); flex-shrink: 0; }
+.ll-lvl { flex-shrink: 0; width: 38px; }
+.ll-lvl.i { color: var(--cyan); }
+.ll-lvl.w { color: var(--orange); }
+.ll-lvl.e { color: var(--red); }
+.ll-msg { color: var(--text); word-break: break-all; }
+
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(0,210,255,0.15); border-radius: 2px; }
+
+/* ═══ INTERFACE SELECTOR ═══ */
+.iface-selector {
+  position: relative; display: flex; align-items: center; gap: 6px;
+}
+.iface-btn {
+  display: flex; align-items: center; gap: 7px;
+  background: rgba(0,210,255,0.06); border: 1px solid rgba(0,210,255,0.2);
+  border-radius: 3px; padding: 5px 12px 5px 10px; cursor: pointer;
+  font-family: var(--mono); font-size: 0.6rem; color: var(--cyan);
+  letter-spacing: 0.08em; transition: all 0.15s; white-space: nowrap;
+}
+.iface-btn:hover { background: rgba(0,210,255,0.1); border-color: rgba(0,210,255,0.35); }
+.iface-btn .iface-dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--green); box-shadow: 0 0 5px var(--green); flex-shrink: 0;
+}
+.iface-btn .iface-arrow { font-size: 0.5rem; opacity: 0.6; margin-left: 3px; }
+.iface-dropdown {
+  display: none; position: absolute; top: calc(100% + 6px); right: 0;
+  background: var(--surface2); border: 1px solid rgba(0,210,255,0.2);
+  border-radius: 4px; min-width: 220px; z-index: 999;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5); overflow: hidden;
+}
+.iface-dropdown.show { display: block; animation: fadeUp 0.15s ease; }
+.iface-dropdown-header {
+  padding: 8px 12px; border-bottom: 1px solid var(--border2);
+  font-family: var(--mono); font-size: 0.55rem; color: var(--muted);
+  letter-spacing: 0.15em; text-transform: uppercase;
+}
+.iface-option {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; cursor: pointer; transition: background 0.1s;
+  font-family: var(--mono); font-size: 0.63rem; color: var(--text);
+}
+.iface-option:hover { background: rgba(0,210,255,0.06); }
+.iface-option.active { color: var(--cyan); background: rgba(0,210,255,0.08); }
+.iface-option .io-dot {
+  width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0;
+  background: var(--muted);
+}
+.iface-option.active .io-dot {
+  background: var(--green); box-shadow: 0 0 5px var(--green);
+}
+.iface-option .io-name { flex: 1; }
+.iface-option .io-desc {
+  font-size: 0.55rem; color: var(--muted); max-width: 100px;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.iface-label {
+  font-family: var(--mono); font-size: 0.55rem; color: var(--muted);
+  letter-spacing: 0.1em; text-transform: uppercase;
+}
+
+/* ═══ PACKETS TAB (Wireshark-style) ═══ */
+.pkt-controls {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap;
+}
+.pkt-controls .pkt-count {
+  font-family: var(--mono); font-size: 0.62rem; color: var(--muted); margin-left: auto;
+}
+.pkt-filter {
+  background: var(--surface2); border: 1px solid var(--border2); border-radius: 3px;
+  padding: 6px 12px; font-family: var(--mono); font-size: 0.63rem;
+  color: var(--text); outline: none; width: 260px;
+}
+.pkt-filter:focus { border-color: rgba(0,210,255,0.3); }
+.pkt-filter::placeholder { color: var(--muted); }
+.pkt-table-wrap {
+  background: var(--surface2); border: 1px solid var(--border2); border-radius: 4px;
+  overflow: hidden; display: flex; flex-direction: column;
+}
+.pkt-table-scroll {
+  overflow-y: auto; max-height: 340px;
+  scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.08) transparent;
+}
+.pkt-table { width: 100%; border-collapse: collapse; font-size: 0.7rem; }
+.pkt-table thead { position: sticky; top: 0; z-index: 10; }
+.pkt-table thead th {
+  text-align: left; padding: 7px 10px; font-family: var(--mono);
+  font-size: 0.56rem; letter-spacing: 0.1em; color: var(--muted);
+  background: var(--surface3); border-bottom: 1px solid var(--border);
+  white-space: nowrap; text-transform: uppercase;
+}
+.pkt-table tbody tr {
+  border-bottom: 1px solid rgba(255,255,255,0.02); cursor: pointer; transition: all 0.08s;
+}
+.pkt-table tbody tr:hover { background: rgba(0,210,255,0.06) !important; }
+.pkt-table tbody tr.selected { background: rgba(0,210,255,0.12) !important; border-color: rgba(0,210,255,0.2); }
+.pkt-table td {
+  padding: 5px 10px; white-space: nowrap; font-family: var(--mono); font-size: 0.63rem;
+}
+/* Protocol-based row coloring (like Wireshark) */
+.pkt-table tr.proto-tcp { background: rgba(228,228,255,0.04); }
+.pkt-table tr.proto-udp { background: rgba(200,240,255,0.04); }
+.pkt-table tr.proto-dns { background: rgba(200,255,200,0.04); }
+.pkt-table tr.proto-http { background: rgba(200,255,200,0.04); }
+.pkt-table tr.proto-tls { background: rgba(255,220,200,0.04); }
+.pkt-table tr.proto-icmp { background: rgba(255,200,255,0.04); }
+.pkt-table tr.proto-ips { background: rgba(255,62,94,0.08); }
+.pkt-table .col-no { color: var(--muted); width: 55px; }
+.pkt-table .col-time { color: var(--muted); width: 80px; }
+.pkt-table .col-proto { font-weight: 600; width: 60px; }
+.pkt-table .col-len { color: var(--muted); width: 55px; text-align: right; }
+.pkt-table .col-info { color: var(--text); max-width: 400px; overflow: hidden; text-overflow: ellipsis; }
+
+/* Packet detail pane */
+.pkt-detail {
+  background: var(--surface); border-top: 1px solid var(--border);
+  max-height: 260px; overflow-y: auto; display: none;
+  scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.08) transparent;
+}
+.pkt-detail.show { display: block; animation: fadeUp 0.15s ease; }
+.pkt-detail-section {
+  border-bottom: 1px solid var(--border2); padding: 10px 14px;
+}
+.pkt-detail-section:last-child { border-bottom: none; }
+.pds-title {
+  font-family: var(--mono); font-size: 0.58rem; letter-spacing: 0.12em;
+  color: var(--cyan); text-transform: uppercase; margin-bottom: 6px;
+  display: flex; align-items: center; gap: 6px;
+}
+.pds-title::before { content: '▸'; font-size: 0.5rem; }
+.pds-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 4px 20px;
+}
+.pds-item {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  padding: 2px 0; font-family: var(--mono); font-size: 0.62rem;
+}
+.pds-key { color: var(--muted); }
+.pds-val { color: var(--text); text-align: right; }
+.pds-val.c { color: var(--cyan); }
+.pds-val.g { color: var(--green); }
+.pds-val.r { color: var(--red); }
+.pds-val.o { color: var(--orange); }
+.pkt-pause-btn {
+  background: rgba(255,140,66,0.1); border: 1px solid rgba(255,140,66,0.25);
+  border-radius: 3px; padding: 5px 12px; cursor: pointer;
+  font-family: var(--mono); font-size: 0.6rem; color: var(--orange);
+  letter-spacing: 0.05em; transition: all 0.15s;
+}
+.pkt-pause-btn:hover { background: rgba(255,140,66,0.15); }
+.pkt-pause-btn.paused { background: rgba(0,255,157,0.1); border-color: rgba(0,255,157,0.25); color: var(--green); }
+.toggle-switch {
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+  background: #1e293b;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.3s;
+  border: 1px solid #334155;
+  display: inline-block;
+  margin-top: 4px;
+}
+.toggle-switch.on {
+  background: #10b981;
+  border-color: #10b981;
+  box-shadow: 0 0 8px rgba(16,185,129,0.4);
+}
+.toggle-knob {
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  position: absolute;
+  top: 2px;
+  left: 3px;
+  transition: transform 0.3s;
+}
+.toggle-switch.on .toggle-knob {
+  transform: translateX(14px);
+}
+</style>
+</head>
+<body>
+
+<!-- TOPBAR -->
+<header class="topbar">
+  <div class="topbar-brand">
+    <div class="tb-eye"></div>
+    <span class="tb-wordmark">GOD'S <span>EYE</span></span>
+  </div>
+  <div class="tb-sep"></div>
+  <div class="tb-breadcrumb">
+    <span>Agents</span><span>›</span><span class="crumb-active">ge-sensor</span>
+  </div>
+  <div class="topbar-right">
+    <span class="iface-label">INTERFACE</span>
+    <div class="iface-selector">
+      <div class="iface-btn" id="iface-btn" onclick="toggleIfaceDropdown()">
+        <span class="iface-dot"></span>
+        <span id="iface-current">—</span>
+        <span class="iface-arrow">▼</span>
+      </div>
+      <div class="iface-dropdown" id="iface-dropdown">
+        <div class="iface-dropdown-header">Select Interface</div>
+        <div id="iface-list"><!-- populated by JS --></div>
+      </div>
+    </div>
+    <div class="tb-sep"></div>
+    <div class="tb-status-pill" id="status-pill"><span class="tb-dot"></span>CONNECTING...</div>
+    <span class="tb-clock" id="clock">--:--:-- UTC</span>
+  </div>
+</header>
+
+<div class="layout">
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-tool-header">
+      <div class="sth-tag">// Network Sensor</div>
+      <div class="sth-name"><span>ge-</span>sensor</div>
+      <div class="sth-lang" id="sidebar-mode">RUST · —</div>
+      <div class="sth-badge"><span class="sth-badge-dot"></span><span id="sidebar-status">INITIALIZING</span></div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-group-label">Monitor</div>
+      <div class="nav-item active" onclick="showPage('overview',this)"><span class="nav-icon">◈</span>Overview</div>
+      <div class="nav-item" onclick="showPage('flows',this)"><span class="nav-icon">⟳</span>Flow Tracker</div>
+      <div class="nav-item" onclick="showPage('dissectors',this)"><span class="nav-icon">⊡</span>Dissectors</div>
+      <div class="nav-item" onclick="showPage('packets',this)"><span class="nav-icon">▤</span>Packets</div>
+    </div>
+
+    <div class="sidebar-divider"></div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-group-label">Security</div>
+      <div class="nav-item" onclick="showPage('ips',this)"><span class="nav-icon">⛔</span>IPS Engine</div>
+      <div class="nav-item" onclick="showPage('logs',this)"><span class="nav-icon">≡</span>Live Logs</div>
+    </div>
+
+    <div class="sidebar-divider"></div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-group-label">I/O</div>
+      <div class="nav-item" onclick="showPage('inputs',this)"><span class="nav-icon">↙</span>Input Sources</div>
+      <div class="nav-item" onclick="showPage('kafka',this)"><span class="nav-icon">⇢</span>Kafka Output</div>
+      <div class="nav-item" onclick="showPage('config',this)"><span class="nav-icon">⚙</span>Configuration</div>
+    </div>
+
+    <div class="sidebar-mini-stats">
+      <div class="sm-stat">
+        <div class="sm-label">UPTIME</div>
+        <div class="sm-val" id="sidebar-uptime">—</div>
+        <div class="sm-sub" id="sidebar-version">v—</div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <div class="main">
+    <div class="tab-bar">
+      <div class="tab active" onclick="showPage('overview',null,this)"><span class="tab-dot"></span>Overview</div>
+      <div class="tab" onclick="showPage('flows',null,this)"><span class="tab-dot"></span>Flows</div>
+      <div class="tab" onclick="showPage('dissectors',null,this)"><span class="tab-dot"></span>Dissectors</div>
+      <div class="tab" onclick="showPage('packets',null,this)"><span class="tab-dot"></span>Packets</div>
+      <div class="tab" onclick="showPage('ips',null,this)"><span class="tab-dot"></span>IPS</div>
+      <div class="tab" onclick="showPage('logs',null,this)"><span class="tab-dot"></span>Logs</div>
+      <div class="tab" onclick="showPage('inputs',null,this)"><span class="tab-dot"></span>Inputs</div>
+      <div class="tab" onclick="showPage('kafka',null,this)"><span class="tab-dot"></span>Kafka</div>
+      <div class="tab" onclick="showPage('config',null,this)"><span class="tab-dot"></span>Config</div>
+    </div>
+
+    <div class="page-area">
+      <!-- ══ OVERVIEW ══ -->
+      <div class="page active" id="page-overview">
+        <div class="page-header">
+          <div>
+            <div class="ph-title">Overview</div>
+            <div class="ph-sub" id="overview-sub">// ge-sensor · loading...</div>
+          </div>
+        </div>
+
+        <div class="stats-row" id="overview-stats">
+          <div class="stat-card"><div class="sc-label">Packets Total</div><div class="sc-val" id="s-packets">—</div><div class="sc-delta flat">from /metrics</div></div>
+          <div class="stat-card g"><div class="sc-label">Active Flows</div><div class="sc-val" id="s-flows">—</div><div class="sc-delta flat">live tracker</div></div>
+          <div class="stat-card r"><div class="sc-label">IPS Alerted</div><div class="sc-val" id="s-alerts">—</div><div class="sc-delta flat">from IPS engine</div></div>
+          <div class="stat-card"><div class="sc-label">Kafka Lag</div><div class="sc-val" id="s-kafka-lag">—</div><div class="sc-delta flat">pending delivery</div></div>
+          <div class="stat-card g"><div class="sc-label">RAM Usage</div><div class="sc-val" id="s-ram">—</div><div class="sc-delta flat">process RSS</div></div>
+          <div class="stat-card"><div class="sc-label">DLQ Size</div><div class="sc-val" id="s-dlq">—</div><div class="sc-delta flat">dead-letter queue</div></div>
+          <div class="stat-card p"><div class="sc-label">IPS Rules</div><div class="sc-val" id="s-rules">—</div><div class="sc-delta flat">loaded rules</div></div>
+          <div class="stat-card"><div class="sc-label">IPS Dropped</div><div class="sc-val" id="s-dropped">—</div><div class="sc-delta flat">blocked packets</div></div>
+        </div>
+
+        <div class="two-col">
+          <div class="card">
+            <div class="card-header"><span class="card-title">// Capture Config (live)</span></div>
+            <div class="kv-list" id="capture-kv">
+              <div class="kv-row"><span class="kv-key">interface</span><span class="kv-val c" id="kv-iface">—</span></div>
+              <div class="kv-row"><span class="kv-key">mode</span><span class="kv-val c" id="kv-mode">—</span></div>
+              <div class="kv-row"><span class="kv-key">promiscuous</span><span class="kv-val g" id="kv-promisc">—</span></div>
+              <div class="kv-row"><span class="kv-key">snap_len</span><span class="kv-val" id="kv-snaplen">—</span></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><span class="card-title">// IPS Engine (live)</span></div>
+            <div class="kv-list" id="ips-kv">
+              <div class="kv-row"><span class="kv-key">mode</span><span class="kv-val o" id="kv-ips-mode">—</span></div>
+              <div class="kv-row"><span class="kv-key">enabled</span><span class="kv-val" id="kv-ips-enabled">—</span></div>
+              <div class="kv-row"><span class="kv-key">default action</span><span class="kv-val g" id="kv-ips-action">—</span></div>
+              <div class="kv-row"><span class="kv-key">rules loaded</span><span class="kv-val" id="kv-ips-rules">—</span></div>
+              <div class="kv-row"><span class="kv-key">inspected</span><span class="kv-val" id="kv-ips-inspected">—</span></div>
+              <div class="kv-row"><span class="kv-key">passed</span><span class="kv-val g" id="kv-ips-passed">—</span></div>
+              <div class="kv-row"><span class="kv-key">dropped</span><span class="kv-val r" id="kv-ips-dropped">—</span></div>
+              <div class="kv-row"><span class="kv-key">alerted</span><span class="kv-val o" id="kv-ips-alerted">—</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ FLOWS ══ -->
+      <div class="page" id="page-flows">
+        <div class="page-header">
+          <div>
+            <div class="ph-title">Flow Tracker</div>
+            <div class="ph-sub">// 5-tuple bidirectional flow tracking · LRU eviction · idle timeout</div>
+          </div>
+        </div>
+        <div class="stats-row">
+          <div class="stat-card"><div class="sc-label">Active Flows</div><div class="sc-val" id="flow-active">—</div><div class="sc-delta flat">live count</div></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">// 14-Feature ML Array (per flow)</span></div>
+          <div class="table-wrap">
+            <table><thead><tr><th>#</th><th>Feature</th><th>Description</th></tr></thead>
+            <tbody>
+              <tr><td class="mono">01</td><td>conn_rate</td><td>Connection attempts/min from source</td></tr>
+              <tr><td class="mono">02</td><td>unique_dst</td><td>Unique destination IPs contacted</td></tr>
+              <tr><td class="mono">03</td><td>dns_entropy</td><td>Shannon entropy of DNS query names</td></tr>
+              <tr><td class="mono">04</td><td>beaconing_score</td><td>Regularity of connection intervals (C2)</td></tr>
+              <tr><td class="mono">05</td><td>traffic_asymmetry</td><td>Upload vs download byte ratio</td></tr>
+              <tr><td class="mono">06</td><td>off_hours_pct</td><td>% traffic outside business hours</td></tr>
+              <tr><td class="mono">07</td><td>iat_mean</td><td>Mean inter-arrival time</td></tr>
+              <tr><td class="mono">08</td><td>bytes_ratio</td><td>Sent-to-received byte ratio</td></tr>
+              <tr><td class="mono">09</td><td>protocol_entropy</td><td>Diversity of protocols used</td></tr>
+              <tr><td class="mono">10</td><td>port_entropy</td><td>Diversity of destination ports</td></tr>
+              <tr><td class="mono">11</td><td>packet_size_var</td><td>Variance in packet sizes</td></tr>
+              <tr><td class="mono">12</td><td>tcp_flag_anomaly</td><td>Unusual TCP flag combos</td></tr>
+              <tr><td class="mono">13</td><td>payload_entropy</td><td>Shannon entropy of payload</td></tr>
+              <tr><td class="mono">14</td><td>geo_distance</td><td>Geographic distance from baseline</td></tr>
+            </tbody></table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ DISSECTORS ══ -->
+      <div class="page" id="page-dissectors">
+        <div class="page-header">
+          <div>
+            <div class="ph-title">Dissectors</div>
+            <div class="ph-sub">// Protocol dissection registry — state from live config</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">// Active dissectors (from config)</span></div>
+          <div class="dissector-grid" id="dissector-grid"><!-- populated by JS --></div>
+        </div>
+      </div>
+
+      <!-- ══ PACKETS (Wireshark-style) ══ -->
+      <div class="page" id="page-packets">
+        <div class="page-header">
+          <div>
+            <div class="ph-title">Packet Capture</div>
+            <div class="ph-sub">// live packet inspection · last 500 packets · click row for details</div>
+          </div>
+        </div>
+
+        <div class="pkt-controls">
+          <input type="text" class="pkt-filter" id="pkt-filter" placeholder="Filter: ip, port, protocol..." oninput="filterPackets()">
+          <button class="pkt-pause-btn" id="pkt-pause-btn" onclick="togglePktPause()">❚❚ PAUSE</button>
+          <span class="pkt-count" id="pkt-count">0 packets</span>
+        </div>
+
+        <div class="pkt-table-wrap">
+          <div class="pkt-table-scroll" id="pkt-table-scroll">
+            <table class="pkt-table">
+              <thead>
+                <tr>
+                  <th>No.</th>
+                  <th>Time</th>
+                  <th>Source</th>
+                  <th>Destination</th>
+                  <th>Protocol</th>
+                  <th>Length</th>
+                  <th>Info</th>
+                </tr>
+              </thead>
+              <tbody id="pkt-tbody"><!-- populated by JS --></tbody>
+            </table>
+          </div>
+
+          <div class="pkt-detail" id="pkt-detail">
+            <div class="pkt-detail-section">
+              <div class="pds-title">Frame / Ethernet (Layer 2)</div>
+              <div class="pds-grid" id="pds-l2"></div>
+            </div>
+            <div class="pkt-detail-section">
+              <div class="pds-title">Internet Protocol (Layer 3)</div>
+              <div class="pds-grid" id="pds-l3"></div>
+            </div>
+            <div class="pkt-detail-section">
+              <div class="pds-title">Transport (Layer 4)</div>
+              <div class="pds-grid" id="pds-l4"></div>
+            </div>
+            <div class="pkt-detail-section" id="pds-ips-section" style="display:none">
+              <div class="pds-title">IPS Verdict</div>
+              <div class="pds-grid" id="pds-ips"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ IPS ══ -->
+      <div class="page" id="page-ips">
+        <div class="page-header">
+          <div>
+            <div class="ph-title">IPS / Blocking</div>
+            <div class="ph-sub">// Intrusion Prevention System · rule-based verdicts · tap/inline mode</div>
+          </div>
+        </div>
+        <div class="stats-row">
+          <div class="stat-card"><div class="sc-label">Inspected</div><div class="sc-val" id="ips-inspected">—</div></div>
+          <div class="stat-card g"><div class="sc-label">Passed</div><div class="sc-val" id="ips-passed">—</div></div>
+          <div class="stat-card r"><div class="sc-label">Dropped</div><div class="sc-val" id="ips-dropped">—</div></div>
+          <div class="stat-card o"><div class="sc-label">Alerted</div><div class="sc-val" id="ips-alerted">—</div></div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">// IPS Mode</span></div>
+          <div class="kv-list">
+            <div class="kv-row"><span class="kv-key">Mode</span><span class="kv-val o" id="ips-mode-val">—</span></div>
+            <div class="kv-row"><span class="kv-key">Default Action</span><span class="kv-val g" id="ips-action-val">—</span></div>
+            <div class="kv-row"><span class="kv-key">Rules Loaded</span><span class="kv-val" id="ips-rules-val">—</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ LOGS ══ -->
+      <div class="page" id="page-logs">
+        <div class="page-header">
+          <div>
+            <div class="ph-title">Live Logs</div>
+            <div class="ph-sub">// ge-sensor API poll log · updates every 2 seconds</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">// API Poll Log</span></div>
+          <div class="log-stream" id="log-stream"></div>
+        </div>
+      </div>
+
+      <!-- ══ INPUTS ══ -->
+      <div class="page" id="page-inputs">
+        <div class="page-header">
+          <div>
+            <div class="ph-title">Input Sources</div>
+            <div class="ph-sub">// Configured input listeners from ge-sensor.yml</div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><span class="card-title">// Input Listeners (from config)</span></div>
+          <div class="table-wrap">
+            <table><thead><tr><th>Name</th><th>Protocol</th><th>Port</th><th>Status</th></tr></thead>
+            <tbody id="inputs-tbody"><!-- populated by JS --></tbody></table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ KAFKA ══ -->
+      <div class="page" id="page-kafka">
+        <div class="page-header">
+          <div>
+            <div class="ph-title">Kafka Output</div>
+            <div class="ph-sub">// Output pipeline status from live sensor state</div>
+          </div>
+        </div>
+        <div class="two-col">
+          <div class="card">
+            <div class="card-header"><span class="card-title">// Kafka Config (live)</span></div>
+            <div class="kv-list">
+              <div class="kv-row"><span class="kv-key">Topic</span><span class="kv-val c" id="kafka-topic">—</span></div>
+              <div class="kv-row"><span class="kv-key">Brokers</span><span class="kv-val mono" id="kafka-brokers">—</span></div>
+              <div class="kv-row"><span class="kv-key">Lag</span><span class="kv-val" id="kafka-lag">—</span></div>
+              <div class="kv-row"><span class="kv-key">Delivery Errors</span><span class="kv-val" id="kafka-errors">—</span></div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-header"><span class="card-title">// DLQ (Dead Letter Queue)</span></div>
+            <div class="kv-list">
+              <div class="kv-row"><span class="kv-key">Size</span><span class="kv-val" id="dlq-size">—</span></div>
+              <div class="kv-row"><span class="kv-key">Total Spooled</span><span class="kv-val" id="dlq-spooled">—</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ══ CONFIG ══ -->
+      <div class="page" id="page-config">
+        <div class="page-header" style="justify-content: space-between; align-items: flex-end; margin-bottom: 20px;">
+          <div>
+            <div class="ph-title" style="font-size: 32px;">Configuration</div>
+            <div class="ph-sub" style="font-size: 12px; margin-top: 8px;">// ge-sensor.yml &middot; production running config &middot; dynamic reload supported</div>
+          </div>
+          <div class="action-bar">
+            <button class="btn" onclick="downloadConfig()">⬇ Download YAML</button>
+            <button class="btn danger" onclick="resetConfig()">✕ Revert</button>
+            <button class="btn primary" onclick="saveConfig()">💾 Save & Apply</button>
+          </div>
+        </div>
+        <div class="card" style="padding: 0; overflow: hidden; border: 1px solid rgba(0,255,200,0.1);">
+          <div class="card-header" style="background: rgba(0,0,0,0.4); border-bottom: 1px solid rgba(0,255,200,0.1); display: flex; justify-content: space-between;">
+            <span class="card-title" style="font-size: 12px; letter-spacing: 1px;">// GE-SENSOR.YML — PRODUCTION</span>
+            <span class="config-status" id="config-status" style="text-align: right;">● ready</span>
+          </div>
+          <textarea id="config-editor" class="code-editor" spellcheck="false"></textarea>
+        </div>
+      </div>
+
+    </div><!-- /page-area -->
+  </div><!-- /main -->
+</div><!-- /layout -->
+
+<script>
+// ═══ CLOCK ═══
+(function tick() {
+  document.getElementById('clock').textContent = new Date().toISOString().substring(11,19) + ' UTC';
+  setTimeout(tick, 1000);
+})();
+
+// ═══ PAGE SWITCHING ═══
+function showPage(name, sidebarEl, tabEl) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  if (sidebarEl) sidebarEl.classList.add('active');
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  if (tabEl) tabEl.classList.add('active');
+}
+
+// ═══ HELPERS ═══
+function fmtBytes(b) {
+  if (b === 0) return '0 B';
+  if (b < 1024) return b + ' B';
+  if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
+  if (b < 1073741824) return (b/1048576).toFixed(1) + ' MB';
+  return (b/1073741824).toFixed(1) + ' GB';
+}
+
+function fmtUptime(secs) {
+  const d = Math.floor(secs/86400);
+  const h = Math.floor((secs%86400)/3600);
+  const m = Math.floor((secs%3600)/60);
+  if (d > 0) return d + 'd ' + h + 'h ' + m + 'm';
+  if (h > 0) return h + 'h ' + m + 'm';
+  return m + 'm ' + (secs%60) + 's';
+}
+
+function addLog(level, msg) {
+  const stream = document.getElementById('log-stream');
+  if (!stream) return;
+  const t = new Date().toISOString().substring(11,23);
+  const div = document.createElement('div');
+  div.className = 'log-line';
+  const cls = level === 'error' ? 'e' : level === 'warn' ? 'w' : 'i';
+  const lbl = level === 'error' ? 'ERR' : level === 'warn' ? 'WARN' : 'INFO';
+  div.innerHTML = '<span class="ll-time">' + t + '</span><span class="ll-lvl ' + cls + '">' + lbl + '</span><span class="ll-msg">' + msg + '</span>';
+  stream.appendChild(div);
+  stream.scrollTop = stream.scrollHeight;
+  if (stream.children.length > 100) stream.removeChild(stream.firstChild);
+}
+
+// ═══ TOGGLE DISSECTOR ═══
+async function toggleDissector(name, state) {
+  try {
+    const res = await fetch(`/api/toggle-dissector?name=${name}&state=${state}`);
+    if(res.ok) poll();
+  } catch(e) { console.error('Failed to toggle', e); }
+}
+
+// ═══ CONFIGURATION ═══
+async function fetchConfig() {
+  try {
+    const res = await fetch('/api/config');
+    const json = await res.json();
+    if(json.yaml) {
+      document.getElementById('config-editor').value = json.yaml.replace(/\\n/g, '\n').replace(/\\"/g, '"');
+      document.getElementById('config-status').innerText = '● last loaded ' + new Date().toISOString().substring(11,19) + ' UTC';
+      document.getElementById('config-status').style.color = 'rgba(0,255,200,0.6)';
+    }
+  } catch(e) { console.error('Failed to load config', e); }
+}
+
+async function saveConfig() {
+  const btn = document.querySelector('.btn.primary');
+  const orgText = btn.innerHTML;
+  btn.innerHTML = 'Saving...';
+  const yaml = document.getElementById('config-editor').value;
+  try {
+    const res = await fetch('/api/config', {
+      method: 'POST',
+      body: JSON.stringify({yaml: yaml})
+    });
+    if(res.ok) {
+      document.getElementById('config-status').innerText = '● last saved ' + new Date().toISOString().substring(11,19) + ' UTC';
+      document.getElementById('config-status').style.color = '#00ffc8';
+      btn.innerHTML = 'Saved!';
+      setTimeout(() => btn.innerHTML = orgText, 2000);
+      poll(); // refresh UI state to reflect changes
+    } else {
+      throw new Error('Server returned ' + res.status);
+    }
+  } catch(e) {
+    document.getElementById('config-status').innerText = '● error saving';
+    document.getElementById('config-status').style.color = '#ff3366';
+    console.error('Failed to save config', e);
+    btn.innerHTML = orgText;
+  }
+}
+
+function resetConfig() {
+  if (confirm("Revert your unsaved changes? This will reload the editor from the active config file.")) {
+    fetchConfig();
+  }
+}
+
+function downloadConfig() {
+  const yaml = document.getElementById('config-editor').value;
+  const blob = new Blob([yaml], { type: 'text/yaml' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'ge-sensor.yml';
+  a.click();
+}
+
+// Intercept tab switching to load config
+const originalShowPage = showPage;
+showPage = function(name, sidebarEl, tabEl) {
+  originalShowPage(name, sidebarEl, tabEl);
+  if (name === 'config') {
+    fetchConfig();
+  }
+};
+
+// ═══ LIVE DATA POLLING ═══
+async function poll() {
+  try {
+    const resp = await fetch('/api/state');
+    if (!resp.ok) { addLog('error', 'API returned ' + resp.status); return; }
+    const s = await resp.json();
+
+    // Status pill
+    const pill = document.getElementById('status-pill');
+    pill.innerHTML = '<span class="tb-dot"></span>' + s.sensor.name.toUpperCase() + ' ONLINE';
+
+    // Sidebar
+    document.getElementById('sidebar-mode').textContent = 'RUST · ' + s.capture.mode;
+    document.getElementById('sidebar-status').textContent = s.sensor.status.toUpperCase();
+    document.getElementById('sidebar-uptime').textContent = fmtUptime(s.sensor.uptime_secs);
+    document.getElementById('sidebar-version').textContent = 'v' + s.sensor.version;
+
+    // Overview subtitle
+    document.getElementById('overview-sub').textContent =
+      '// ' + s.sensor.name + ' · ' + s.capture.interface + ' · ' + s.capture.mode + ' · uptime ' + fmtUptime(s.sensor.uptime_secs);
+
+    // Overview stat cards
+    document.getElementById('s-packets').textContent = s.capture.packets_total.toLocaleString();
+    document.getElementById('s-flows').textContent = s.flows.active_flows.toLocaleString();
+    document.getElementById('s-alerts').textContent = s.ips.packets_alerted.toLocaleString();
+    document.getElementById('s-kafka-lag').textContent = s.kafka.lag.toLocaleString();
+    document.getElementById('s-ram').textContent = fmtBytes(s.sensor.ram_bytes);
+    document.getElementById('s-dlq').textContent = fmtBytes(s.dlq.size_bytes);
+    document.getElementById('s-rules').textContent = s.ips.rules_count.toLocaleString();
+    document.getElementById('s-dropped').textContent = s.ips.packets_dropped.toLocaleString();
+
+    // Capture KV + interface selector
+    document.getElementById('kv-iface').textContent = s.capture.interface;
+    document.getElementById('kv-mode').textContent = s.capture.mode;
+    document.getElementById('kv-promisc').textContent = s.capture.promiscuous ? 'true' : 'false';
+    document.getElementById('kv-snaplen').textContent = s.capture.snap_len + ' bytes';
+    updateIfaceDisplay(s.capture.interface);
+
+    // IPS KV (overview)
+    document.getElementById('kv-ips-mode').textContent = s.ips.mode.toUpperCase();
+    document.getElementById('kv-ips-enabled').textContent = s.ips.enabled ? 'yes' : 'no';
+    document.getElementById('kv-ips-action').textContent = s.ips.default_action;
+    document.getElementById('kv-ips-rules').textContent = s.ips.rules_count;
+    document.getElementById('kv-ips-inspected').textContent = s.ips.packets_inspected.toLocaleString();
+    document.getElementById('kv-ips-passed').textContent = s.ips.packets_passed.toLocaleString();
+    document.getElementById('kv-ips-dropped').textContent = s.ips.packets_dropped.toLocaleString();
+    document.getElementById('kv-ips-alerted').textContent = s.ips.packets_alerted.toLocaleString();
+
+    // Flows page
+    document.getElementById('flow-active').textContent = s.flows.active_flows.toLocaleString();
+
+    // IPS page
+    document.getElementById('ips-inspected').textContent = s.ips.packets_inspected.toLocaleString();
+    document.getElementById('ips-passed').textContent = s.ips.packets_passed.toLocaleString();
+    document.getElementById('ips-dropped').textContent = s.ips.packets_dropped.toLocaleString();
+    document.getElementById('ips-alerted').textContent = s.ips.packets_alerted.toLocaleString();
+    document.getElementById('ips-mode-val').textContent = s.ips.mode.toUpperCase();
+    document.getElementById('ips-action-val').textContent = s.ips.default_action;
+    document.getElementById('ips-rules-val').textContent = s.ips.rules_count;
+
+    // Dissectors
+    const grid = document.getElementById('dissector-grid');
+    grid.innerHTML = '';
+    s.dissectors.forEach(d => {
+      const item = document.createElement('div');
+      item.className = 'dissector-item' + (d.enabled ? ' on' : '');
+      item.innerHTML =
+        '<div class="di-proto">' + d.category.toUpperCase() + '</div>' +
+        '<div class="di-name">' + d.name + '</div>' +
+        '<div class="di-hits">port ' + d.port + '</div>' +
+        '<div class="di-status"><div class="toggle-switch ' + (d.enabled ? 'on' : '') + '" onclick="toggleDissector(\'' + d.name + '\', ' + !d.enabled + ')"><div class="toggle-knob"></div></div></div>';
+      grid.appendChild(item);
+    });
+
+    // Inputs
+    const tbody = document.getElementById('inputs-tbody');
+    tbody.innerHTML = '';
+    s.inputs.forEach(i => {
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + i.name + '</td>' +
+        '<td class="mono">' + i.protocol.toUpperCase() + '</td>' +
+        '<td class="mono">' + i.port + '</td>' +
+        '<td><span class="badge ' + (i.enabled ? 'active">' + i.status.toUpperCase() : 'idle">DISABLED') + '</span></td>';
+      tbody.appendChild(tr);
+    });
+
+    // Kafka
+    document.getElementById('kafka-topic').textContent = s.kafka.topic;
+    document.getElementById('kafka-brokers').textContent = s.kafka.brokers.join(', ');
+    document.getElementById('kafka-lag').textContent = s.kafka.lag.toLocaleString();
+    document.getElementById('kafka-errors').textContent = s.kafka.delivery_errors.toLocaleString();
+    document.getElementById('dlq-size').textContent = fmtBytes(s.dlq.size_bytes);
+    document.getElementById('dlq-spooled').textContent = s.dlq.total_spooled.toLocaleString();
+
+    addLog('info', 'API poll OK — packets=' + s.capture.packets_total + ' flows=' + s.flows.active_flows + ' ips_rules=' + s.ips.rules_count + ' uptime=' + fmtUptime(s.sensor.uptime_secs));
+
+  } catch(e) {
+    addLog('error', 'API poll failed: ' + e.message);
+  }
+}
+
+setInterval(poll, 2000);
+poll();
+addLog('info', 'ge-sensor dashboard initialized — polling /api/state every 2s');
+
+// ═══ PACKETS TAB (Wireshark-style) ═══
+let packetsPaused = false;
+let allPackets = [];
+let selectedPktNo = null;
+
+async function pollPackets() {
+  if (packetsPaused) return;
+  try {
+    const resp = await fetch('/api/packets');
+    if (!resp.ok) return;
+    allPackets = await resp.json();
+    renderPackets();
+  } catch(e) { /* silent */ }
+}
+
+function renderPackets() {
+  const filter = (document.getElementById('pkt-filter').value || '').toLowerCase();
+  const tbody = document.getElementById('pkt-tbody');
+  const scroll = document.getElementById('pkt-table-scroll');
+  const wasAtBottom = scroll.scrollTop + scroll.clientHeight >= scroll.scrollHeight - 20;
+
+  let filtered = allPackets;
+  if (filter) {
+    filtered = allPackets.filter(p =>
+      p.src_ip.toLowerCase().includes(filter) ||
+      p.dst_ip.toLowerCase().includes(filter) ||
+      p.protocol.toLowerCase().includes(filter) ||
+      String(p.src_port).includes(filter) ||
+      String(p.dst_port).includes(filter) ||
+      p.info.toLowerCase().includes(filter)
+    );
+  }
+
+  document.getElementById('pkt-count').textContent = filtered.length + ' of ' + allPackets.length + ' packets';
+
+  // Only re-render if data changed
+  tbody.innerHTML = '';
+  filtered.forEach(p => {
+    const tr = document.createElement('tr');
+    const proto = p.protocol.toLowerCase();
+    let rowClass = 'proto-' + proto;
+    if (p.ips_verdict !== 'Pass' && p.ips_rule) rowClass = 'proto-ips';
+    tr.className = rowClass;
+    if (p.no === selectedPktNo) tr.classList.add('selected');
+
+    // Protocol color for the cell
+    const protoColors = {
+      tcp: 'var(--purple)', udp: 'var(--cyan)', dns: 'var(--green)',
+      http: 'var(--green)', tls: 'var(--orange)', icmp: 'var(--yellow)',
+    };
+    const protoColor = protoColors[proto] || 'var(--text)';
+
+    tr.innerHTML =
+      '<td class="col-no">' + p.no + '</td>' +
+      '<td class="col-time">' + p.time_secs.toFixed(4) + '</td>' +
+      '<td>' + p.src_ip + '</td>' +
+      '<td>' + p.dst_ip + '</td>' +
+      '<td class="col-proto" style="color:' + protoColor + '">' + p.protocol + '</td>' +
+      '<td class="col-len">' + p.length + '</td>' +
+      '<td class="col-info">' + escHtml(p.info) + '</td>';
+
+    tr.onclick = () => showPktDetail(p);
+    tbody.appendChild(tr);
+  });
+
+  if (wasAtBottom) scroll.scrollTop = scroll.scrollHeight;
+}
+
+function escHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function showPktDetail(p) {
+  selectedPktNo = p.no;
+
+  // Highlight selected row
+  document.querySelectorAll('.pkt-table tbody tr').forEach(r => r.classList.remove('selected'));
+  const rows = document.querySelectorAll('.pkt-table tbody tr');
+  rows.forEach(r => {
+    if (r.firstChild && r.firstChild.textContent == p.no) r.classList.add('selected');
+  });
+
+  // L2 - Ethernet
+  document.getElementById('pds-l2').innerHTML = pdsItem('Src MAC', p.src_mac, 'c') +
+    pdsItem('Dst MAC', p.dst_mac, 'c') +
+    pdsItem('EtherType', p.ethertype, '') +
+    pdsItem('VLAN ID', p.vlan_id !== null ? p.vlan_id : '—', '') +
+    pdsItem('Frame Length', p.length + ' bytes', '');
+
+  // L3 - IP
+  document.getElementById('pds-l3').innerHTML = pdsItem('Source', p.src_ip, 'c') +
+    pdsItem('Destination', p.dst_ip, 'c') +
+    pdsItem('Protocol', protoNumToName(p.ip_proto) + ' (' + p.ip_proto + ')', '') +
+    pdsItem('TTL', p.ttl, '') +
+    pdsItem('Payload', p.payload_len + ' bytes', '');
+
+  // L4 - Transport
+  const proto = p.protocol.toLowerCase();
+  let l4 = pdsItem('Src Port', p.src_port, 'c') + pdsItem('Dst Port', p.dst_port, 'c');
+  if (proto === 'tcp') {
+    l4 += pdsItem('Flags', p.tcp_flags, 'o') +
+      pdsItem('Seq', p.tcp_seq, '') +
+      pdsItem('Ack', p.tcp_ack, '') +
+      pdsItem('Window', p.tcp_window, '');
+  } else if (proto === 'icmp') {
+    l4 = pdsItem('Info', p.info, '');
+  }
+  document.getElementById('pds-l4').innerHTML = l4;
+
+  // IPS
+  const ipsSection = document.getElementById('pds-ips-section');
+  if (p.ips_rule) {
+    ipsSection.style.display = '';
+    const verdictClass = p.ips_verdict === 'Pass' ? 'g' : p.ips_verdict === 'Drop' ? 'r' : 'o';
+    document.getElementById('pds-ips').innerHTML =
+      pdsItem('Verdict', p.ips_verdict, verdictClass) +
+      pdsItem('Rule', p.ips_rule, 'o');
+  } else {
+    ipsSection.style.display = 'none';
+  }
+
+  document.getElementById('pkt-detail').classList.add('show');
+}
+
+function pdsItem(key, val, cls) {
+  return '<div class="pds-item"><span class="pds-key">' + key + '</span><span class="pds-val ' + cls + '">' + val + '</span></div>';
+}
+
+function protoNumToName(n) {
+  const m = {1:'ICMP', 6:'TCP', 17:'UDP', 2:'IGMP', 47:'GRE', 50:'ESP', 51:'AH', 58:'ICMPv6', 89:'OSPF', 132:'SCTP'};
+  return m[n] || 'Proto-' + n;
+}
+
+function filterPackets() { renderPackets(); }
+
+function togglePktPause() {
+  packetsPaused = !packetsPaused;
+  const btn = document.getElementById('pkt-pause-btn');
+  if (packetsPaused) {
+    btn.textContent = '▶ RESUME';
+    btn.classList.add('paused');
+  } else {
+    btn.textContent = '❚❚ PAUSE';
+    btn.classList.remove('paused');
+  }
+}
+
+setInterval(pollPackets, 2000);
+pollPackets();
+
+// ═══ INTERFACE SELECTOR ═══
+let ifaceDropdownOpen = false;
+
+function toggleIfaceDropdown() {
+  ifaceDropdownOpen = !ifaceDropdownOpen;
+  const dd = document.getElementById('iface-dropdown');
+  if (ifaceDropdownOpen) {
+    dd.classList.add('show');
+    loadInterfaces();
+  } else {
+    dd.classList.remove('show');
+  }
+}
+
+// Close dropdown on outside click
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.iface-selector')) {
+    document.getElementById('iface-dropdown').classList.remove('show');
+    ifaceDropdownOpen = false;
+  }
+});
+
+async function loadInterfaces() {
+  try {
+    const resp = await fetch('/api/interfaces');
+    const interfaces = await resp.json();
+    const list = document.getElementById('iface-list');
+    list.innerHTML = '';
+    interfaces.forEach(iface => {
+      const div = document.createElement('div');
+      div.className = 'iface-option' + (iface.active ? ' active' : '');
+      div.innerHTML =
+        '<span class="io-dot"></span>' +
+        '<span class="io-name">' + iface.name + '</span>' +
+        (iface.description ? '<span class="io-desc">' + iface.description + '</span>' : '');
+      div.onclick = () => switchInterface(iface.name);
+      list.appendChild(div);
+    });
+  } catch(e) {
+    addLog('error', 'Failed to load interfaces: ' + e.message);
+  }
+}
+
+async function switchInterface(name) {
+  const btn = document.getElementById('iface-current');
+  const old = btn.textContent;
+  btn.textContent = 'switching...';
+  addLog('info', '⟳ switching capture interface to ' + name + '...');
+
+  try {
+    const resp = await fetch('/api/set-interface?iface=' + encodeURIComponent(name));
+    const result = await resp.json();
+    if (result.ok) {
+      btn.textContent = name;
+      addLog('info', '✓ interface switched to ' + name);
+    } else {
+      btn.textContent = old;
+      addLog('error', 'switch failed: ' + (result.error || 'unknown'));
+    }
+  } catch(e) {
+    btn.textContent = old;
+    addLog('error', 'switch failed: ' + e.message);
+  }
+
+  document.getElementById('iface-dropdown').classList.remove('show');
+  ifaceDropdownOpen = false;
+}
+
+// Update interface display from poll data
+function updateIfaceDisplay(ifaceName) {
+  document.getElementById('iface-current').textContent = ifaceName;
+}
+</script>
+</body>
+</html>
