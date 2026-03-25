@@ -12,19 +12,26 @@
 use crate::config::Config;
 use crate::flow::features;
 use crate::flow::tracker::FlowTracker;
-use crate::ips::{IpsEngine, IpsMode, Verdict};
+use crate::ips::{IpsEngine, IpsMode, IpsRule, RuleCriteria, Verdict};
+use crate::pcap_store::ring_buffer::PacketRingBuffer;
 use crate::utils::logging::Metrics;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::net::IpAddr;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 // ── Packet Ring Buffer ───────────────────────────────────────────────────
 
 /// Maximum number of recent packets stored for the dashboard.
 const MAX_RECENT_PACKETS: usize = 500;
+/// Maximum number of recent IPS events stored for the dashboard.
+const MAX_IPS_EVENTS: usize = 300;
+/// Maximum number of capture records retained in memory for PCAP page.
+const MAX_PCAP_RECORDS: usize = 500;
 
 /// A captured+dissected packet ready for display.
 #[derive(Debug, Clone, Serialize)]
@@ -79,6 +86,111 @@ pub struct PacketRecord {
 pub struct PacketRing {
     packets: VecDeque<PacketRecord>,
     counter: u64,
+}
+
+/// A single IPS match event for the live block feed.
+#[derive(Debug, Clone, Serialize)]
+pub struct IpsEventRecord {
+    pub time_secs: f64,
+    pub src_ip: String,
+    pub dst_ip: String,
+    pub src_port: u16,
+    pub dst_port: u16,
+    pub protocol: String,
+    pub verdict: String,
+    pub rule_id: String,
+    pub severity: String,
+    pub description: String,
+}
+
+/// Thread-safe ring buffer for recent IPS events.
+pub struct IpsEventRing {
+    events: VecDeque<IpsEventRecord>,
+}
+
+/// Metadata for one persisted PCAP capture.
+#[derive(Debug, Clone, Serialize)]
+pub struct PcapCaptureRecord {
+    pub capture_id: String,
+    pub trigger_type: String,
+    pub five_tuple: String,
+    pub size_bytes: u64,
+    pub duration_secs: f64,
+    pub timestamp: u64,
+    pub status: String,
+    pub file_name: String,
+    pub file_path: String,
+    pub rule_id: String,
+}
+
+/// Aggregated PCAP storage status for the dashboard tab.
+#[derive(Debug, Serialize)]
+pub struct PcapStorageResponse {
+    pub stored_captures: usize,
+    pub total_size_bytes: u64,
+    pub ring_buffer_mb: u32,
+    pub ring_buffer_used_pct: f64,
+    pub ring_buffer_used_bytes: usize,
+    pub trigger_mode: String,
+    pub retention_days: u32,
+    pub index_type: String,
+    pub storage_backend: String,
+    pub compression: String,
+    pub max_capture_mb: u32,
+    pub today_captures: usize,
+    pub alert_triggered: usize,
+    pub manual_captures: usize,
+    pub captures: Vec<PcapCaptureRecord>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PcapBulkDownloadRequest {
+    pub ids: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PcapBulkDownloadResponse {
+    pub ok: bool,
+    pub selected: usize,
+    pub total_size_bytes: u64,
+    pub files: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PcapDownloadResponse {
+    pub ok: bool,
+    pub capture_id: String,
+    pub file_path: String,
+    pub size_bytes: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PcapReconstructResponse {
+    pub ok: bool,
+    pub capture_id: String,
+    pub summary: String,
+    pub five_tuple: String,
+    pub estimated_packets: u64,
+    pub duration_secs: f64,
+}
+
+impl IpsEventRing {
+    pub fn new() -> Self {
+        Self {
+            events: VecDeque::with_capacity(MAX_IPS_EVENTS),
+        }
+    }
+
+    pub fn push(&mut self, event: IpsEventRecord) {
+        if self.events.len() >= MAX_IPS_EVENTS {
+            self.events.pop_front();
+        }
+        self.events.push_back(event);
+    }
+
+    pub fn recent(&self) -> Vec<IpsEventRecord> {
+        self.events.iter().cloned().collect()
+    }
 }
 
 impl PacketRing {
@@ -247,6 +359,18 @@ pub struct AppState {
     pub restart_capture: Arc<std::sync::atomic::AtomicBool>,
     /// Ring buffer of recent captured packets for the Packets tab.
     pub packet_ring: Arc<Mutex<PacketRing>>,
+    /// Ring buffer of recent IPS events for live block feed.
+    pub ips_event_ring: Arc<Mutex<IpsEventRing>>,
+    /// Packet byte ring used to build forensic PCAP captures.
+    pub pcap_ring: Arc<Mutex<PacketRingBuffer>>,
+    /// Metadata records for saved PCAP captures.
+    pub pcap_captures: Arc<Mutex<VecDeque<PcapCaptureRecord>>>,
+    /// On-disk capture output directory.
+    pub pcap_output_dir: Arc<RwLock<PathBuf>>,
+    /// Monotonic sequence for capture IDs.
+    pub pcap_seq: Arc<AtomicU64>,
+    /// Runtime capture toggle (on/off).
+    pub capture_enabled: Arc<std::sync::atomic::AtomicBool>,
 }
 
 // ── JSON response types ──────────────────────────────────────────────────
@@ -272,17 +396,64 @@ pub struct SensorInfo {
 #[derive(Serialize)]
 pub struct CaptureInfo {
     pub interface: String, pub mode: String, pub promiscuous: bool,
-    pub snap_len: u32, pub packets_total: i64,
+    pub snap_len: u32, pub packets_total: i64, pub capturing: bool,
 }
 
 #[derive(Serialize)]
 pub struct FlowInfo { pub active_flows: i64 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct IpsInfo {
     pub mode: String, pub enabled: bool, pub default_action: String,
     pub rules_count: usize, pub packets_inspected: u64,
     pub packets_passed: u64, pub packets_dropped: u64, pub packets_alerted: u64,
+}
+
+#[derive(Serialize)]
+pub struct IpsRulesResponse {
+    pub mode: String,
+    pub rules_count: usize,
+    pub total_rule_hits: u64,
+    pub rules: Vec<IpsRuleApi>,
+}
+
+#[derive(Serialize)]
+pub struct IpsRuleApi {
+    pub id: String,
+    pub description: String,
+    pub severity: String,
+    pub action: String,
+    pub enabled: bool,
+    pub hits: u64,
+    pub match_summary: String,
+    pub status: String,
+}
+
+#[derive(Deserialize)]
+pub struct NewIpsRuleRequest {
+    pub id: String,
+    pub description: String,
+    pub severity: String,
+    pub action: String,
+    #[serde(default = "default_true_bool")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub criteria: RuleCriteriaRequest,
+}
+
+#[derive(Deserialize, Default)]
+pub struct RuleCriteriaRequest {
+    pub src_ip: Option<String>,
+    pub dst_ip: Option<String>,
+    pub src_port: Option<u16>,
+    pub dst_port: Option<u16>,
+    pub protocol: Option<u8>,
+    pub tcp_flags_mask: Option<u8>,
+    pub tcp_flags_value: Option<u8>,
+    #[serde(default)]
+    pub modbus_func_codes: Vec<u8>,
+    #[serde(default)]
+    pub dnp3_func_codes: Vec<u8>,
 }
 
 #[derive(Serialize)]
@@ -342,6 +513,316 @@ pub struct FlowsResponse {
 }
 
 impl AppState {
+    pub fn capture_enabled(&self) -> bool {
+        self.capture_enabled
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    pub fn set_capture_enabled(&self, enabled: bool) -> bool {
+        self.capture_enabled
+            .store(enabled, std::sync::atomic::Ordering::SeqCst);
+        enabled
+    }
+
+    fn build_ips_info(&self) -> IpsInfo {
+        let engine = self.ips_engine.lock().unwrap();
+        let stats = engine.stats();
+        let cfg = self.config.read().unwrap();
+
+        IpsInfo {
+            mode: match engine.mode() {
+                IpsMode::Tap => "tap".to_string(),
+                IpsMode::Inline => "inline".to_string(),
+            },
+            enabled: cfg.ips.enabled,
+            default_action: cfg.ips.default_action.clone(),
+            rules_count: engine.rule_count(),
+            packets_inspected: stats.packets_inspected,
+            packets_passed: stats.packets_passed,
+            packets_dropped: stats.packets_dropped,
+            packets_alerted: stats.packets_alerted,
+        }
+    }
+
+    pub fn ips_info(&self) -> IpsInfo {
+        self.build_ips_info()
+    }
+
+    pub fn ips_rules(&self) -> IpsRulesResponse {
+        let engine = self.ips_engine.lock().unwrap();
+        let mode = engine.mode();
+
+        let rules: Vec<IpsRuleApi> = engine
+            .rules()
+            .iter()
+            .map(|rule| {
+                let hits = engine.rule_hit_count(&rule.id);
+                let action = verdict_to_str(rule.action).to_string();
+                let status = match (mode, rule.action, rule.enabled) {
+                    (_, _, false) => "disabled",
+                    (IpsMode::Tap, Verdict::Drop, true) => "tap_only",
+                    (IpsMode::Inline, Verdict::Drop, true) => "blocking",
+                    (_, Verdict::Alert, true) => "alert_only",
+                    (_, Verdict::Pass, true) => "pass",
+                }
+                .to_string();
+
+                IpsRuleApi {
+                    id: rule.id.clone(),
+                    description: rule.description.clone(),
+                    severity: rule.severity.clone(),
+                    action,
+                    enabled: rule.enabled,
+                    hits,
+                    match_summary: summarize_rule(rule),
+                    status,
+                }
+            })
+            .collect();
+
+        let total_rule_hits = rules.iter().map(|r| r.hits).sum();
+
+        IpsRulesResponse {
+            mode: match mode {
+                IpsMode::Tap => "tap".to_string(),
+                IpsMode::Inline => "inline".to_string(),
+            },
+            rules_count: rules.len(),
+            total_rule_hits,
+            rules,
+        }
+    }
+
+    pub fn set_ips_mode(&self, mode: &str) -> Result<IpsInfo, String> {
+        let normalized = mode.trim().to_ascii_lowercase();
+        let new_mode = match normalized.as_str() {
+            "tap" => IpsMode::Tap,
+            "inline" => IpsMode::Inline,
+            _ => return Err("mode must be 'tap' or 'inline'".to_string()),
+        };
+
+        {
+            let mut engine = self.ips_engine.lock().unwrap();
+            engine.set_mode(new_mode);
+        }
+
+        {
+            let mut cfg = self.config.write().unwrap();
+            cfg.ips.mode = normalized;
+            cfg.ips.enabled = true;
+        }
+
+        Ok(self.build_ips_info())
+    }
+
+    pub fn add_ips_rule(&self, req: NewIpsRuleRequest) -> Result<IpsRuleApi, String> {
+        let rule = req.into_rule()?;
+        let rule_id = rule.id.clone();
+
+        {
+            let mut engine = self.ips_engine.lock().unwrap();
+            if engine.rules().iter().any(|r| r.id == rule_id) {
+                return Err(format!("rule '{}' already exists", rule_id));
+            }
+            engine.add_rule(rule);
+        }
+
+        self.ips_rules()
+            .rules
+            .into_iter()
+            .find(|r| r.id == rule_id)
+            .ok_or_else(|| "failed to read added rule".to_string())
+    }
+
+    pub fn delete_ips_rule(&self, rule_id: &str) -> Result<(), String> {
+        let mut engine = self.ips_engine.lock().unwrap();
+        if engine.remove_rule(rule_id) {
+            Ok(())
+        } else {
+            Err(format!("rule '{}' not found", rule_id))
+        }
+    }
+
+    pub fn recent_ips_events(&self) -> Vec<IpsEventRecord> {
+        self.ips_event_ring.lock().unwrap().recent()
+    }
+
+    pub fn pcap_push_packet_bytes(&self, packet: &[u8]) {
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
+        let mut ring = self.pcap_ring.lock().unwrap();
+        ring.push(ts.as_secs() as u32, ts.subsec_micros(), packet);
+    }
+
+    pub fn create_pcap_capture(
+        &self,
+        trigger_type: &str,
+        five_tuple: &str,
+        rule_id: Option<&str>,
+    ) -> Result<PcapCaptureRecord, String> {
+        let capture_no = self.pcap_seq.fetch_add(1, Ordering::SeqCst);
+        let capture_id = format!("ALT-{capture_no:04}");
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let file_name = format!("{capture_id}.pcap");
+        let file_path = self.pcap_output_dir.read().unwrap().join(&file_name);
+
+        let packets_written = {
+            let ring = self.pcap_ring.lock().unwrap();
+            ring.flush_to_pcap(&file_path)
+                .map_err(|e| format!("failed to write pcap: {e}"))?
+        };
+
+        let size_bytes = std::fs::metadata(&file_path)
+            .map(|m| m.len())
+            .unwrap_or(0);
+
+        let duration_secs = self.start_time.elapsed().as_secs_f64();
+        let record = PcapCaptureRecord {
+            capture_id,
+            trigger_type: trigger_type.to_string(),
+            five_tuple: five_tuple.to_string(),
+            size_bytes,
+            duration_secs,
+            timestamp,
+            status: "indexed".to_string(),
+            file_name,
+            file_path: file_path.to_string_lossy().to_string(),
+            rule_id: rule_id.unwrap_or("").to_string(),
+        };
+
+        {
+            let mut captures = self.pcap_captures.lock().unwrap();
+            if captures.len() >= MAX_PCAP_RECORDS {
+                if let Some(old) = captures.pop_front() {
+                    let _ = std::fs::remove_file(old.file_path);
+                }
+            }
+            captures.push_back(record.clone());
+        }
+
+        Ok(record)
+    }
+
+    pub fn pcap_storage(&self, filter: Option<&str>) -> PcapStorageResponse {
+        let cfg = self.config.read().unwrap();
+        let captures_guard = self.pcap_captures.lock().unwrap();
+        let mut captures: Vec<PcapCaptureRecord> = captures_guard.iter().cloned().collect();
+
+        if let Some(f) = filter {
+            let needle = f.to_ascii_lowercase();
+            if !needle.is_empty() {
+                captures.retain(|c| {
+                    c.capture_id.to_ascii_lowercase().contains(&needle)
+                        || c.five_tuple.to_ascii_lowercase().contains(&needle)
+                        || c.rule_id.to_ascii_lowercase().contains(&needle)
+                        || c.trigger_type.to_ascii_lowercase().contains(&needle)
+                });
+            }
+        }
+
+        let total_size_bytes: u64 = captures.iter().map(|c| c.size_bytes).sum();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let today_captures = captures
+            .iter()
+            .filter(|c| now.saturating_sub(c.timestamp) <= 86_400)
+            .count();
+        let alert_triggered = captures
+            .iter()
+            .filter(|c| c.trigger_type.eq_ignore_ascii_case("alert"))
+            .count();
+        let manual_captures = captures
+            .iter()
+            .filter(|c| c.trigger_type.eq_ignore_ascii_case("manual"))
+            .count();
+
+        let ring_used_bytes = self.pcap_ring.lock().unwrap().bytes_used();
+        let ring_alloc_bytes = (cfg.pcap.ring_buffer_mb as usize) * 1024 * 1024;
+        let ring_buffer_used_pct = if ring_alloc_bytes == 0 {
+            0.0
+        } else {
+            (ring_used_bytes as f64 / ring_alloc_bytes as f64) * 100.0
+        };
+
+        PcapStorageResponse {
+            stored_captures: captures.len(),
+            total_size_bytes,
+            ring_buffer_mb: cfg.pcap.ring_buffer_mb,
+            ring_buffer_used_pct,
+            ring_buffer_used_bytes: ring_used_bytes,
+            trigger_mode: cfg.pcap.trigger.clone(),
+            retention_days: cfg.pcap.retention_days,
+            index_type: "5-tuple + timestamp".to_string(),
+            storage_backend: "filesystem + ring buffer".to_string(),
+            compression: "none".to_string(),
+            max_capture_mb: 50,
+            today_captures,
+            alert_triggered,
+            manual_captures,
+            captures,
+        }
+    }
+
+    pub fn pcap_download(&self, capture_id: &str) -> Result<PcapDownloadResponse, String> {
+        let captures = self.pcap_captures.lock().unwrap();
+        let cap = captures
+            .iter()
+            .find(|c| c.capture_id == capture_id)
+            .ok_or_else(|| format!("capture '{}' not found", capture_id))?;
+        Ok(PcapDownloadResponse {
+            ok: true,
+            capture_id: cap.capture_id.clone(),
+            file_path: cap.file_path.clone(),
+            size_bytes: cap.size_bytes,
+        })
+    }
+
+    pub fn pcap_bulk_download(&self, ids: &[String]) -> PcapBulkDownloadResponse {
+        let captures = self.pcap_captures.lock().unwrap();
+        let mut files = Vec::new();
+        let mut total_size_bytes = 0u64;
+
+        for id in ids {
+            if let Some(c) = captures.iter().find(|x| x.capture_id == *id) {
+                files.push(c.file_path.clone());
+                total_size_bytes += c.size_bytes;
+            }
+        }
+
+        PcapBulkDownloadResponse {
+            ok: true,
+            selected: files.len(),
+            total_size_bytes,
+            files,
+        }
+    }
+
+    pub fn pcap_reconstruct(&self, capture_id: &str) -> Result<PcapReconstructResponse, String> {
+        let captures = self.pcap_captures.lock().unwrap();
+        let cap = captures
+            .iter()
+            .find(|c| c.capture_id == capture_id)
+            .ok_or_else(|| format!("capture '{}' not found", capture_id))?;
+
+        Ok(PcapReconstructResponse {
+            ok: true,
+            capture_id: cap.capture_id.clone(),
+            summary: format!(
+                "Reconstructed session for {} ({})",
+                cap.five_tuple, cap.trigger_type
+            ),
+            five_tuple: cap.five_tuple.clone(),
+            estimated_packets: cap.size_bytes / 128,
+            duration_secs: cap.duration_secs,
+        })
+    }
+
     pub fn list_interfaces(&self) -> Vec<InterfaceInfo> {
         let current = self.capture_interface.read().unwrap().clone();
         pcap::Device::list()
@@ -476,29 +957,7 @@ impl AppState {
         };
         metrics.active_flows.set(active_flows);
 
-        let ips_info = {
-            let engine = self.ips_engine.lock().unwrap();
-            let stats = engine.stats();
-            IpsInfo {
-                mode: match engine.mode() {
-                    IpsMode::Tap => "tap".to_string(),
-                    IpsMode::Inline => "inline".to_string(),
-                },
-                enabled: {
-                    let cfg = self.config.read().unwrap();
-                    cfg.ips.enabled
-                },
-                default_action: {
-                    let cfg = self.config.read().unwrap();
-                    cfg.ips.default_action.clone()
-                },
-                rules_count: engine.rule_count(),
-                packets_inspected: stats.packets_inspected,
-                packets_passed: stats.packets_passed,
-                packets_dropped: stats.packets_dropped,
-                packets_alerted: stats.packets_alerted,
-            }
-        };
+        let ips_info = self.build_ips_info();
 
         let cfg = self.config.read().unwrap();
         SensorStateResponse {
@@ -515,6 +974,7 @@ impl AppState {
                 promiscuous: cfg.capture.promisc,
                 snap_len: cfg.capture.snap_len,
                 packets_total,
+                capturing: self.capture_enabled(),
             },
             flows: FlowInfo { active_flows },
             ips: ips_info,
@@ -529,6 +989,116 @@ impl AppState {
             inputs: build_input_list(&cfg),
         }
     }
+}
+
+fn verdict_to_str(v: Verdict) -> &'static str {
+    match v {
+        Verdict::Pass => "pass",
+        Verdict::Drop => "drop",
+        Verdict::Alert => "alert",
+    }
+}
+
+fn summarize_rule(rule: &IpsRule) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    let c = &rule.criteria;
+
+    if let Some(ip) = c.src_ip {
+        parts.push(format!("src_ip={ip}"));
+    }
+    if let Some(ip) = c.dst_ip {
+        parts.push(format!("dst_ip={ip}"));
+    }
+    if let Some(port) = c.src_port {
+        parts.push(format!("src_port={port}"));
+    }
+    if let Some(port) = c.dst_port {
+        parts.push(format!("dst_port={port}"));
+    }
+    if let Some(proto) = c.protocol {
+        parts.push(format!("proto={proto}"));
+    }
+    if let (Some(mask), Some(value)) = (c.tcp_flags_mask, c.tcp_flags_value) {
+        parts.push(format!("tcp_flags({mask:#04x})={value:#04x}"));
+    }
+    if !c.modbus_func_codes.is_empty() {
+        parts.push(format!("modbus_fc={:?}", c.modbus_func_codes));
+    }
+    if !c.dnp3_func_codes.is_empty() {
+        parts.push(format!("dnp3_fc={:?}", c.dnp3_func_codes));
+    }
+
+    if parts.is_empty() {
+        "any".to_string()
+    } else {
+        parts.join(", ")
+    }
+}
+
+impl NewIpsRuleRequest {
+    fn into_rule(self) -> Result<IpsRule, String> {
+        let id = self.id.trim().to_string();
+        if id.is_empty() {
+            return Err("rule id must not be empty".to_string());
+        }
+
+        let description = self.description.trim().to_string();
+        if description.is_empty() {
+            return Err("rule description must not be empty".to_string());
+        }
+
+        let action = match self.action.trim().to_ascii_lowercase().as_str() {
+            "drop" => Verdict::Drop,
+            "alert" => Verdict::Alert,
+            "pass" => Verdict::Pass,
+            _ => return Err("action must be one of: drop, alert, pass".to_string()),
+        };
+
+        Ok(IpsRule {
+            id,
+            description,
+            severity: self.severity.trim().to_ascii_lowercase(),
+            action,
+            criteria: self.criteria.into_criteria()?,
+            enabled: self.enabled,
+        })
+    }
+}
+
+impl RuleCriteriaRequest {
+    fn into_criteria(self) -> Result<RuleCriteria, String> {
+        Ok(RuleCriteria {
+            src_ip: parse_optional_ip(self.src_ip, "src_ip")?,
+            dst_ip: parse_optional_ip(self.dst_ip, "dst_ip")?,
+            src_port: self.src_port,
+            dst_port: self.dst_port,
+            protocol: self.protocol,
+            tcp_flags_mask: self.tcp_flags_mask,
+            tcp_flags_value: self.tcp_flags_value,
+            modbus_func_codes: self.modbus_func_codes,
+            dnp3_func_codes: self.dnp3_func_codes,
+        })
+    }
+}
+
+fn parse_optional_ip(value: Option<String>, field: &str) -> Result<Option<IpAddr>, String> {
+    match value {
+        None => Ok(None),
+        Some(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                return Ok(None);
+            }
+            trimmed
+                .parse::<IpAddr>()
+                .map(Some)
+                .map_err(|_| format!("invalid {} address", field))
+        }
+    }
+}
+
+fn default_true_bool() -> bool {
+    true
 }
 
 fn build_dissector_list(cfg: &Config) -> Vec<DissectorInfo> {

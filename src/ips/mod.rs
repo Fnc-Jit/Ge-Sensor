@@ -8,6 +8,7 @@
 //! This module provides the rule matching engine and verdict logic.
 
 use std::net::IpAddr;
+use std::collections::HashMap;
 use tracing::{debug, info, warn};
 
 /// IPS verdicts for each packet.
@@ -84,6 +85,7 @@ pub struct IpsStats {
 pub struct IpsEngine {
     mode: IpsMode,
     rules: Vec<IpsRule>,
+    rule_hits: HashMap<String, u64>,
     default_action: Verdict,
     stats: IpsStats,
 }
@@ -100,6 +102,7 @@ impl IpsEngine {
         Self {
             mode,
             rules: Vec::new(),
+            rule_hits: HashMap::new(),
             default_action,
             stats: IpsStats::default(),
         }
@@ -113,6 +116,7 @@ impl IpsEngine {
             severity = %rule.severity,
             "IPS rule added: {}", rule.description
         );
+        self.rule_hits.entry(rule.id.clone()).or_insert(0);
         self.rules.push(rule);
     }
 
@@ -207,7 +211,7 @@ impl IpsEngine {
         tcp_flags: u8,
         modbus_func: Option<u8>,
         dnp3_func: Option<u8>,
-    ) -> (Verdict, Option<&IpsRule>) {
+    ) -> (Verdict, Option<IpsRule>) {
         self.stats.packets_inspected += 1;
 
         for rule in &self.rules {
@@ -238,7 +242,9 @@ impl IpsEngine {
                     Verdict::Alert => self.stats.packets_alerted += 1,
                 }
 
-                return (verdict, Some(rule));
+                *self.rule_hits.entry(rule.id.clone()).or_insert(0) += 1;
+
+                return (verdict, Some(rule.clone()));
             }
         }
 
@@ -317,9 +323,44 @@ impl IpsEngine {
         self.mode
     }
 
+    /// Update IPS runtime mode.
+    pub fn set_mode(&mut self, mode: IpsMode) {
+        if self.mode != mode {
+            info!(old_mode = ?self.mode, new_mode = ?mode, "IPS mode changed");
+            self.mode = mode;
+        }
+    }
+
+    /// Current default action.
+    pub fn default_action(&self) -> Verdict {
+        self.default_action
+    }
+
     /// Get the number of loaded rules.
     pub fn rule_count(&self) -> usize {
         self.rules.len()
+    }
+
+    /// Remove a rule by ID.
+    pub fn remove_rule(&mut self, rule_id: &str) -> bool {
+        let before = self.rules.len();
+        self.rules.retain(|r| r.id != rule_id);
+        let removed = self.rules.len() != before;
+        if removed {
+            self.rule_hits.remove(rule_id);
+            info!(rule_id = %rule_id, "IPS rule removed");
+        }
+        removed
+    }
+
+    /// Read-only access to loaded rules.
+    pub fn rules(&self) -> &[IpsRule] {
+        &self.rules
+    }
+
+    /// Per-rule hit counter since process start.
+    pub fn rule_hit_count(&self, rule_id: &str) -> u64 {
+        self.rule_hits.get(rule_id).copied().unwrap_or(0)
     }
 }
 

@@ -6,8 +6,9 @@
 
 use anyhow::{Context, Result};
 use clap::Parser;
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, RwLock};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
 
@@ -25,7 +26,9 @@ use config::Config;
 use capture::{CaptureConfig, CaptureProvider};
 use flow::tracker::{FlowTracker, FlowTrackerConfig};
 use ips::{IpsEngine, IpsMode, Verdict};
-use utils::dashboard::{AppState, PacketRing, build_packet_record};
+use utils::dashboard::{
+    AppState, IpsEventRecord, IpsEventRing, PacketRing, build_packet_record,
+};
 use utils::logging::Metrics;
 
 #[derive(Parser)]
@@ -104,6 +107,14 @@ async fn main() -> Result<()> {
     let restart_capture = Arc::new(AtomicBool::new(false));
 
     let packet_ring = Arc::new(Mutex::new(PacketRing::new()));
+    let ips_event_ring = Arc::new(Mutex::new(IpsEventRing::new()));
+    let pcap_ring = Arc::new(Mutex::new(
+        pcap_store::ring_buffer::PacketRingBuffer::new((config.pcap.ring_buffer_mb as usize) * 1024 * 1024)
+    ));
+    let pcap_captures = Arc::new(Mutex::new(VecDeque::new()));
+    let pcap_output_dir = Arc::new(RwLock::new(std::path::PathBuf::from("pcap_data")));
+    let pcap_seq = Arc::new(AtomicU64::new(1));
+    let capture_enabled = Arc::new(AtomicBool::new(true));
 
     let app_state = Arc::new(AppState {
         metrics: metrics.clone(),
@@ -116,6 +127,12 @@ async fn main() -> Result<()> {
         start_time,
         restart_capture: restart_capture.clone(),
         packet_ring: packet_ring.clone(),
+        ips_event_ring: ips_event_ring.clone(),
+        pcap_ring: pcap_ring.clone(),
+        pcap_captures: pcap_captures.clone(),
+        pcap_output_dir: pcap_output_dir.clone(),
+        pcap_seq: pcap_seq.clone(),
+        capture_enabled: capture_enabled.clone(),
     });
 
     // ── HTTP server ─────────────────────────────────────────────────
@@ -158,11 +175,19 @@ async fn main() -> Result<()> {
     let cap_promisc = config.capture.promisc;
     let cap_snap_len = config.capture.snap_len;
     let cap_ring = packet_ring.clone();
+    let cap_ips_events = ips_event_ring.clone();
     let cap_start = start_time;
     let cap_dissector_cfg = app_state.config.clone();
+    let cap_state = app_state.clone();
+    let cap_enabled = capture_enabled.clone();
 
     tokio::task::spawn_blocking(move || {
         loop {
+            if !cap_enabled.load(Ordering::SeqCst) {
+                std::thread::sleep(Duration::from_millis(250));
+                continue;
+            }
+
             let iface = cap_iface.read().unwrap().clone();
             info!(interface = %iface, "starting capture on interface");
 
@@ -194,6 +219,11 @@ async fn main() -> Result<()> {
             let mut last_log = Instant::now();
 
             loop {
+                if !cap_enabled.load(Ordering::SeqCst) {
+                    info!("capture paused by runtime toggle");
+                    break;
+                }
+
                 // Check if we should restart on a new interface
                 if cap_restart.load(Ordering::SeqCst) {
                     let new_iface = cap_iface.read().unwrap().clone();
@@ -204,6 +234,9 @@ async fn main() -> Result<()> {
                 match provider.next_packet() {
                     Ok(Some(packet)) => {
                         pkt_count += 1;
+
+                        // Feed forensic PCAP ring from raw packet bytes.
+                        cap_state.pcap_push_packet_bytes(&packet.data);
 
                         let meta = match dissectors::dissect_packet(&packet.data) {
                             Some(m) => m,
@@ -270,6 +303,39 @@ async fn main() -> Result<()> {
                                 rule_id = rule.id.clone();
                                 cap_metrics.alerts_total
                                     .with_label_values(&[&rule.severity]).inc();
+
+                                let elapsed = cap_start.elapsed().as_secs_f64();
+                                cap_ips_events.lock().unwrap().push(IpsEventRecord {
+                                    time_secs: elapsed,
+                                    src_ip: src_ip.to_string(),
+                                    dst_ip: dst_ip.to_string(),
+                                    src_port: meta.src_port,
+                                    dst_port: meta.dst_port,
+                                    protocol: meta.protocol_name.to_uppercase(),
+                                    verdict: format!("{:?}", verdict),
+                                    rule_id: rule.id.clone(),
+                                    severity: rule.severity.clone(),
+                                    description: rule.description.clone(),
+                                });
+
+                                let five_tuple = format!(
+                                    "{}:{} -> {}:{}/{}",
+                                    src_ip,
+                                    meta.src_port,
+                                    dst_ip,
+                                    meta.dst_port,
+                                    meta.protocol_name.to_uppercase()
+                                );
+                                let trigger_mode = {
+                                    let cfg = cap_state.config.read().unwrap();
+                                    cfg.pcap.trigger.clone()
+                                };
+                                if trigger_mode.eq_ignore_ascii_case("alert") || trigger_mode.eq_ignore_ascii_case("always") {
+                                    if let Err(e) = cap_state.create_pcap_capture("alert", &five_tuple, Some(&rule.id)) {
+                                        warn!(error = %e, "failed to create alert-triggered PCAP capture");
+                                    }
+                                }
+
                                 info!(rule = %rule.id, verdict = ?verdict,
                                       src = %src_ip, dst = %dst_ip, "⚠ IPS alert");
                             }

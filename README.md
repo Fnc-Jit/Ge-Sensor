@@ -122,10 +122,25 @@ Once running, open **http://localhost:9090** in your browser.
 | `/api/state` | GET | Full sensor state (JSON) |
 | `/api/flows` | GET | Per-flow data with ML features (JSON) |
 | `/api/packets` | GET | Recent captured packets (JSON) |
+| `/api/ips` | GET | IPS runtime mode and counters |
+| `/api/ips/rules` | GET | IPS rules with real hit counters and statuses |
+| `/api/ips/rules` | POST | Add IPS rule (JSON) |
+| `/api/ips/rules/{id}` | DELETE | Remove IPS rule by id |
+| `/api/ips/events` | GET | Recent IPS match events feed |
+| `/api/ips/mode` | POST | Set IPS mode (`{"mode":"tap"|"inline"}`) |
+| `/api/pcap/storage` | GET | PCAP storage stats + recent captures |
+| `/api/pcap/captures` | GET | PCAP capture list (`?filter=` optional) |
+| `/api/pcap/capture/manual` | POST | Trigger manual snapshot capture |
+| `/api/pcap/download?id=` | GET | Resolve capture file path/metadata |
+| `/api/pcap/file?id=` | GET | Download raw `.pcap` file bytes |
+| `/api/pcap/reconstruct?id=` | GET | Session reconstruction summary |
+| `/api/pcap/bulk-download` | POST | Resolve multiple capture files (`{"ids":[]}`) |
+| `/api/capture/toggle?enabled=` | GET | Toggle live capture via query (`true`/`false`) |
+| `/api/capture/toggle` | POST | Toggle live capture (`{"enabled": true|false}`) |
 | `/api/config` | GET | Current YAML configuration |
 | `/api/config` | POST | Update & apply configuration |
 | `/api/interfaces` | GET | Available network interfaces |
-| `/api/set-interface?name=` | GET | Switch capture interface |
+| `/api/set-interface?iface=` | GET | Switch capture interface |
 | `/api/toggle-dissector?name=&state=` | GET | Toggle dissector on/off |
 | `/metrics` | GET | Prometheus metrics |
 | `/health` | GET | Health check |

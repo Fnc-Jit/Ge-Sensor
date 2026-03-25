@@ -14,7 +14,7 @@ use tokio::net::TcpListener;
 use tokio::io::AsyncWriteExt;
 use tracing::{info, warn};
 
-use super::dashboard::AppState;
+use super::dashboard::{AppState, NewIpsRuleRequest, PcapBulkDownloadRequest};
 
 /// All Prometheus metrics for ge-sensor.
 #[derive(Clone)]
@@ -85,6 +85,21 @@ impl Metrics {
 /// Endpoints:
 /// - `GET /`                → Embedded dashboard
 /// - `GET /api/state`       → Full sensor state JSON
+/// - `GET /api/ips`         → IPS mode + counters JSON
+/// - `GET /api/ips/rules`   → IPS rules with real hit counters
+/// - `POST /api/ips/rules`  → Add IPS rule
+/// - `DELETE /api/ips/rules/{id}` → Remove IPS rule by id
+/// - `GET /api/ips/events`  → Recent IPS match events
+/// - `POST /api/ips/mode`   → Set IPS mode: {"mode":"tap"|"inline"}
+/// - `GET /api/pcap/storage` → PCAP tab aggregate stats + captures
+/// - `GET /api/pcap/captures` → PCAP capture list (filter optional)
+/// - `POST /api/pcap/capture/manual` → Trigger manual capture snapshot
+/// - `GET /api/pcap/download?id=<capture_id>` → Resolve capture file path
+/// - `GET /api/pcap/file?id=<capture_id>` → Download raw .pcap file bytes
+/// - `GET /api/pcap/reconstruct?id=<capture_id>` → Reconstruct session summary
+/// - `POST /api/pcap/bulk-download` → Resolve multiple capture files
+/// - `GET /api/capture/toggle?enabled=true|false` → Enable/disable capture
+/// - `POST /api/capture/toggle` → Enable/disable live packet capture
 /// - `GET /api/interfaces`  → List available capture interfaces
 /// - `GET /api/set-interface?iface=<name>` → Switch capture interface
 /// - `GET /metrics`         → Prometheus text
@@ -105,6 +120,59 @@ pub async fn start_metrics_server(
             match tokio::io::AsyncReadExt::read(&mut stream, &mut buf).await {
                 Ok(n) if n > 0 => {
                     let request = String::from_utf8_lossy(&buf[..n]);
+
+                    if request.contains("GET /api/pcap/file") {
+                        let capture_id = query_param(&request, "id").unwrap_or("");
+                        let (status, content_type, headers, body_bytes) = if capture_id.is_empty() {
+                            (
+                                "400 Bad Request",
+                                "application/json",
+                                String::new(),
+                                br#"{"error":"missing id"}"#.to_vec(),
+                            )
+                        } else {
+                            match state.pcap_download(capture_id) {
+                                Ok(meta) => match std::fs::read(&meta.file_path) {
+                                    Ok(bytes) => {
+                                        let extra = format!(
+                                            "Content-Disposition: attachment; filename=\"{}.pcap\"\r\n",
+                                            meta.capture_id
+                                        );
+                                        ("200 OK", "application/vnd.tcpdump.pcap", extra, bytes)
+                                    }
+                                    Err(e) => (
+                                        "404 Not Found",
+                                        "application/json",
+                                        String::new(),
+                                        format!(r#"{{"error":"capture file unavailable: {}"}}"#, e)
+                                            .into_bytes(),
+                                    ),
+                                },
+                                Err(msg) => (
+                                    "404 Not Found",
+                                    "application/json",
+                                    String::new(),
+                                    format!(r#"{{"error":"{}"}}"#, msg).into_bytes(),
+                                ),
+                            }
+                        };
+
+                        let response_head = format!(
+                            "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\n{headers}Content-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n",
+                            body_bytes.len()
+                        );
+
+                        if let Err(e) = stream.write_all(response_head.as_bytes()).await {
+                            warn!(peer = %peer, error = %e, "write failed");
+                            return;
+                        }
+                        if let Err(e) = stream.write_all(&body_bytes).await {
+                            warn!(peer = %peer, error = %e, "write failed");
+                        }
+                        return;
+                    }
+
+                    let request_path = parse_request_path(&request);
 
                     let (status, content_type, body) =
                         if request.contains("GET /api/set-interface") {
@@ -168,6 +236,208 @@ pub async fn start_metrics_server(
                                 Ok(json) => ("200 OK", "application/json", json),
                                 Err(e) => ("500 Internal Server Error", "application/json",
                                            format!(r#"{{"error":"{}"}}"#, e)),
+                            }
+                        } else if request.contains("GET /api/capture/toggle") {
+                            let enabled_raw = query_param(&request, "enabled").unwrap_or("true");
+                            let enabled = enabled_raw.eq_ignore_ascii_case("true") || enabled_raw == "1";
+                            let current = state.set_capture_enabled(enabled);
+                            (
+                                "200 OK",
+                                "application/json",
+                                format!(r#"{{"ok":true,"capturing":{}}}"#, current),
+                            )
+                        } else if request.starts_with("POST /api/capture/toggle") {
+                            if let Some(body_start) = request.find("\r\n\r\n") {
+                                let body = &request[body_start + 4..];
+                                if let Ok(v) = serde_json::from_str::<serde_json::Value>(body) {
+                                    if let Some(enabled) = v.get("enabled").and_then(|m| m.as_bool()) {
+                                        let current = state.set_capture_enabled(enabled);
+                                        (
+                                            "200 OK",
+                                            "application/json",
+                                            format!(r#"{{"ok":true,"capturing":{}}}"#, current),
+                                        )
+                                    } else {
+                                        (
+                                            "400 Bad Request",
+                                            "application/json",
+                                            r#"{"error":"missing enabled field"}"#.to_string(),
+                                        )
+                                    }
+                                } else {
+                                    (
+                                        "400 Bad Request",
+                                        "application/json",
+                                        r#"{"error":"invalid json body"}"#.to_string(),
+                                    )
+                                }
+                            } else {
+                                (
+                                    "400 Bad Request",
+                                    "application/json",
+                                    r#"{"error":"missing body"}"#.to_string(),
+                                )
+                            }
+                        } else if request.contains("GET /api/pcap/storage") {
+                            let filter = query_param(&request, "filter");
+                            let storage = state.pcap_storage(filter);
+                            match serde_json::to_string(&storage) {
+                                Ok(json) => ("200 OK", "application/json", json),
+                                Err(e) => ("500 Internal Server Error", "application/json",
+                                           format!(r#"{{"error":"{}"}}"#, e)),
+                            }
+                        } else if request.contains("GET /api/pcap/captures") {
+                            let filter = query_param(&request, "filter");
+                            let captures = state.pcap_storage(filter).captures;
+                            match serde_json::to_string(&captures) {
+                                Ok(json) => ("200 OK", "application/json", json),
+                                Err(e) => ("500 Internal Server Error", "application/json",
+                                           format!(r#"{{"error":"{}"}}"#, e)),
+                            }
+                        } else if request.starts_with("POST /api/pcap/capture/manual") {
+                            match state.create_pcap_capture("manual", "manual snapshot", None) {
+                                Ok(capture) => match serde_json::to_string(&capture) {
+                                    Ok(json) => ("200 OK", "application/json", json),
+                                    Err(e) => ("500 Internal Server Error", "application/json",
+                                               format!(r#"{{"error":"{}"}}"#, e)),
+                                },
+                                Err(msg) => ("500 Internal Server Error", "application/json",
+                                             format!(r#"{{"error":"{}"}}"#, msg)),
+                            }
+                        } else if request.contains("GET /api/pcap/download") {
+                            let capture_id = query_param(&request, "id").unwrap_or("");
+                            if capture_id.is_empty() {
+                                ("400 Bad Request", "application/json", r#"{"error":"missing id"}"#.to_string())
+                            } else {
+                                match state.pcap_download(capture_id) {
+                                    Ok(res) => match serde_json::to_string(&res) {
+                                        Ok(json) => ("200 OK", "application/json", json),
+                                        Err(e) => ("500 Internal Server Error", "application/json",
+                                                   format!(r#"{{"error":"{}"}}"#, e)),
+                                    },
+                                    Err(msg) => ("404 Not Found", "application/json", format!(r#"{{"error":"{}"}}"#, msg)),
+                                }
+                            }
+                        } else if request.contains("GET /api/pcap/reconstruct") {
+                            let capture_id = query_param(&request, "id").unwrap_or("");
+                            if capture_id.is_empty() {
+                                ("400 Bad Request", "application/json", r#"{"error":"missing id"}"#.to_string())
+                            } else {
+                                match state.pcap_reconstruct(capture_id) {
+                                    Ok(res) => match serde_json::to_string(&res) {
+                                        Ok(json) => ("200 OK", "application/json", json),
+                                        Err(e) => ("500 Internal Server Error", "application/json",
+                                                   format!(r#"{{"error":"{}"}}"#, e)),
+                                    },
+                                    Err(msg) => ("404 Not Found", "application/json", format!(r#"{{"error":"{}"}}"#, msg)),
+                                }
+                            }
+                        } else if request.starts_with("POST /api/pcap/bulk-download") {
+                            if let Some(body_start) = request.find("\r\n\r\n") {
+                                let body = &request[body_start + 4..];
+                                match serde_json::from_str::<PcapBulkDownloadRequest>(body) {
+                                    Ok(payload) => {
+                                        let res = state.pcap_bulk_download(&payload.ids);
+                                        match serde_json::to_string(&res) {
+                                            Ok(json) => ("200 OK", "application/json", json),
+                                            Err(e) => ("500 Internal Server Error", "application/json",
+                                                       format!(r#"{{"error":"{}"}}"#, e)),
+                                        }
+                                    }
+                                    Err(e) => ("400 Bad Request", "application/json",
+                                               format!(r#"{{"error":"invalid json body: {}"}}"#, e)),
+                                }
+                            } else {
+                                ("400 Bad Request", "application/json", r#"{"error":"missing body"}"#.to_string())
+                            }
+                        } else if request.contains("GET /api/ips/rules") {
+                            let rules = state.ips_rules();
+                            match serde_json::to_string(&rules) {
+                                Ok(json) => ("200 OK", "application/json", json),
+                                Err(e) => ("500 Internal Server Error", "application/json",
+                                           format!(r#"{{"error":"{}"}}"#, e)),
+                            }
+                        } else if request.contains("GET /api/ips/events") {
+                            let events = state.recent_ips_events();
+                            match serde_json::to_string(&events) {
+                                Ok(json) => ("200 OK", "application/json", json),
+                                Err(e) => ("500 Internal Server Error", "application/json",
+                                           format!(r#"{{"error":"{}"}}"#, e)),
+                            }
+                        } else if request.starts_with("POST /api/ips/rules") {
+                            if let Some(body_start) = request.find("\r\n\r\n") {
+                                let body = &request[body_start + 4..];
+                                match serde_json::from_str::<NewIpsRuleRequest>(body) {
+                                    Ok(req) => match state.add_ips_rule(req) {
+                                        Ok(rule) => match serde_json::to_string(&rule) {
+                                            Ok(json) => ("200 OK", "application/json", json),
+                                            Err(e) => ("500 Internal Server Error", "application/json",
+                                                       format!(r#"{{"error":"{}"}}"#, e)),
+                                        },
+                                        Err(msg) => ("400 Bad Request", "application/json",
+                                                     format!(r#"{{"error":"{}"}}"#, msg)),
+                                    },
+                                    Err(e) => ("400 Bad Request", "application/json",
+                                               format!(r#"{{"error":"invalid json body: {}"}}"#, e)),
+                                }
+                            } else {
+                                ("400 Bad Request", "application/json",
+                                 r#"{"error":"missing body"}"#.to_string())
+                            }
+                        } else if request.starts_with("DELETE /api/ips/rules/") {
+                            if let Some(path) = request_path {
+                                if let Some(rule_id) = path.strip_prefix("/api/ips/rules/") {
+                                    if rule_id.is_empty() {
+                                        ("400 Bad Request", "application/json",
+                                         r#"{"error":"missing rule id"}"#.to_string())
+                                    } else {
+                                        match state.delete_ips_rule(rule_id) {
+                                            Ok(()) => ("200 OK", "application/json",
+                                                       format!(r#"{{"ok":true,"id":"{}"}}"#, rule_id)),
+                                            Err(msg) => ("404 Not Found", "application/json",
+                                                         format!(r#"{{"error":"{}"}}"#, msg)),
+                                        }
+                                    }
+                                } else {
+                                    ("400 Bad Request", "application/json",
+                                     r#"{"error":"invalid delete path"}"#.to_string())
+                                }
+                            } else {
+                                ("400 Bad Request", "application/json",
+                                 r#"{"error":"invalid request line"}"#.to_string())
+                            }
+                        } else if request.contains("GET /api/ips") {
+                            let ips = state.ips_info();
+                            match serde_json::to_string(&ips) {
+                                Ok(json) => ("200 OK", "application/json", json),
+                                Err(e) => ("500 Internal Server Error", "application/json",
+                                           format!(r#"{{"error":"{}"}}"#, e)),
+                            }
+                        } else if request.starts_with("POST /api/ips/mode") {
+                            if let Some(body_start) = request.find("\r\n\r\n") {
+                                let body = &request[body_start + 4..];
+                                if let Ok(v) = serde_json::from_str::<serde_json::Value>(body) {
+                                    if let Some(mode) = v.get("mode").and_then(|m| m.as_str()) {
+                                        match state.set_ips_mode(mode) {
+                                            Ok(updated) => match serde_json::to_string(&updated) {
+                                                Ok(json) => ("200 OK", "application/json", json),
+                                                Err(e) => ("500 Internal Server Error", "application/json",
+                                                           format!(r#"{{"error":"{}"}}"#, e)),
+                                            },
+                                            Err(msg) => ("400 Bad Request", "application/json",
+                                                         format!(r#"{{"error":"{}"}}"#, msg)),
+                                        }
+                                    } else {
+                                        ("400 Bad Request", "application/json",
+                                         r#"{"error":"missing mode field"}"#.to_string())
+                                    }
+                                } else {
+                                    ("400 Bad Request", "application/json",
+                                     r#"{"error":"invalid json body"}"#.to_string())
+                                }
+                            } else {
+                                ("400 Bad Request", "application/json",
+                                 r#"{"error":"missing body"}"#.to_string())
                             }
                         } else if request.contains("GET /api/config") {
                             match std::fs::read_to_string("configs/ge-sensor.yml") {
@@ -239,6 +509,27 @@ pub async fn start_metrics_server(
             }
         });
     }
+}
+
+fn parse_request_path(request: &str) -> Option<&str> {
+    request
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+}
+
+fn query_param<'a>(request: &'a str, key: &str) -> Option<&'a str> {
+    let path = parse_request_path(request)?;
+    let query = path.split('?').nth(1)?;
+    for pair in query.split('&') {
+        let mut parts = pair.splitn(2, '=');
+        if let (Some(k), Some(v)) = (parts.next(), parts.next()) {
+            if k == key {
+                return Some(v);
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]
