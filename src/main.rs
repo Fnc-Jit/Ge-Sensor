@@ -40,9 +40,59 @@ struct Cli {
     #[arg(long, default_value = "0.0.0.0:9090")]
     metrics_addr: String,
 
-    /// Override capture interface (e.g., en0, lo0, eth0)
+    /// Print capture devices (tab-separated: index, name, description) and exit
+    #[arg(long)]
+    list_interfaces: bool,
+
+    /// Override capture interface (e.g., en0, lo0, eth0, \Device\NPF_...)
     #[arg(short, long)]
     interface: Option<String>,
+}
+
+/// Preferred interface names when auto-resolving (OS-specific; Windows uses Npcap GUID names).
+fn interface_preference_order() -> &'static [&'static str] {
+    #[cfg(target_os = "linux")]
+    {
+        &[
+            "eth0", "ens33", "ens160", "enp0s3", "enp0s8", "enp0s31f6",
+            "wlan0", "wlp0s20f3", "wlp2s0", "wlo1",
+            "lo",
+        ]
+    }
+    #[cfg(target_os = "macos")]
+    {
+        &["en0", "en1", "lo0", "eth0", "wlan0"]
+    }
+    #[cfg(target_os = "windows")]
+    {
+        &[]
+    }
+    #[cfg(not(any(
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "windows"
+    )))]
+    {
+        &["eth0", "wlan0", "en0", "lo0"]
+    }
+}
+
+/// Print devices to stdout for launch scripts (tabs; no config required).
+fn print_pcap_interfaces() -> Result<()> {
+    let devices = pcap::Device::list().context(
+        "pcap::Device::list failed — install libpcap (Linux/macOS) or Npcap with WinPcap API (Windows)",
+    )?;
+    for (i, d) in devices.iter().enumerate() {
+        let desc = d
+            .desc
+            .as_deref()
+            .unwrap_or("")
+            .replace('\t', " ")
+            .replace('\n', " ")
+            .replace('\r', " ");
+        println!("{}\t{}\t{}", i + 1, d.name, desc);
+    }
+    Ok(())
 }
 
 /// Detect the best available interface.
@@ -51,9 +101,9 @@ fn resolve_interface(configured: &str) -> String {
     if devices.iter().any(|d| d.name == configured) {
         return configured.to_string();
     }
-    for preferred in &["en0", "lo0", "eth0", "wlan0"] {
+    for preferred in interface_preference_order() {
         if devices.iter().any(|d| d.name == *preferred) {
-            return preferred.to_string();
+            return (*preferred).to_string();
         }
     }
     devices.first().map(|d| d.name.clone()).unwrap_or_else(|| configured.to_string())
@@ -62,6 +112,12 @@ fn resolve_interface(configured: &str) -> String {
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    if cli.list_interfaces {
+        print_pcap_interfaces()?;
+        return Ok(());
+    }
+
     let start_time = Instant::now();
 
     let config = Config::load(&cli.config).context("failed to load configuration")?;
@@ -174,6 +230,7 @@ async fn main() -> Result<()> {
     let cap_restart = restart_capture.clone();
     let cap_promisc = config.capture.promisc;
     let cap_snap_len = config.capture.snap_len;
+    let cap_capture_mode = config.capture.mode;
     let cap_ring = packet_ring.clone();
     let cap_ips_events = ips_event_ring.clone();
     let cap_start = start_time;
@@ -200,9 +257,7 @@ async fn main() -> Result<()> {
                 timeout: Duration::from_millis(100),
             };
 
-            let mut provider = match capture::create_provider(
-                &crate::config::CaptureMode::Libpcap, cap_config,
-            ) {
+            let mut provider = match capture::create_provider(&cap_capture_mode, cap_config) {
                 Ok(p) => {
                     info!(backend = p.backend_name(), interface = p.interface(),
                           "✓ capture active — live traffic flowing");
